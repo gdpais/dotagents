@@ -1,0 +1,49 @@
+flowchart TD
+    A[Review request: PR, diff, commit, branch, or uncommitted] --> B{Target clear?}
+    B -- no --> B1[Ask one question - human]
+    B1 --> C
+    B -- yes --> C[Resolve target and merge base - defect-first-review]
+    C --> C1{Input type}
+    C1 -- base branch / commit / uncommitted --> C2[resolve_review_target.py - read-only git]
+    C1 -- PR --> C3[Source-control connector or gh - no checkout]
+    C1 -- pasted diff --> C4[Use as given - limited verification]
+    C2 --> D
+    C3 --> D
+    C4 --> D
+    D[Load CLAUDE.md, AGENTS.md, stated intent, user focus - defect-first-review] --> E{Large or security-sensitive diff?}
+    E -- no --> F[Single pass through all lenses]
+    E -- yes --> G[Fan out lens subagents in parallel]
+    G --> G1[Security lens]
+    G --> G2[Correctness and error-handling lens]
+    G --> G3[Performance lens]
+    G --> G4[Data and migrations lens]
+    G1 --> H
+    G2 --> H
+    G3 --> H
+    G4 --> H
+    F --> H[Candidate findings]
+    H --> I[Verify each candidate against call sites and tests - coordinator or verifier subagent]
+    I --> J{Passes five-part bar?}
+    J -- no, speculative or pre-existing --> J1[Drop or list as residual risk]
+    J -- yes --> K[Assign confidence: confirmed or plausible]
+    K --> L[Dedupe and rank P0 to P3 - coordinator]
+    J1 --> L
+    L --> M{Any findings?}
+    M -- no --> M1[No findings. plus assessment and coverage]
+    M -- yes --> N{Host findings tool available?}
+    N -- yes --> N1[Report via findings tool plus text assessment]
+    N -- no --> N2[P-format report plus assessment, test gaps, residual risks, coverage]
+    M1 --> O
+    N1 --> O
+    N2 --> O
+    O{User explicitly asked to post?}
+    O -- no --> Z[Done - nothing posted]
+    O -- ambiguous --> O1[Show draft comments - human approval]
+    O1 --> P
+    O -- yes, clear --> P[Post COMMENT review via connector or gh]
+    P --> Z
+    Z --> X{Out-of-scope concerns?}
+    X -- pre-existing debt --> X1[engineering:tech-debt]
+    X -- test plan wanted --> X2[engineering:testing-strategy]
+    X -- live failure --> X3[engineering:debug or rca]
+    X -- design disagreement --> X4[engineering:architecture]

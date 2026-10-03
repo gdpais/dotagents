@@ -1,0 +1,18 @@
+flowchart TD
+    IN(["Alert, failure or PR"]) --> Q{"What is needed?"}
+    Q -- incident in progress --> L["sre-incident-lifecycle"]
+    Q -- why did it fail --> R["rca-investigation"]
+    Q -- review a change --> CR["defect-first-review"]
+    L --> LR["incident-live-report"]
+    L --> R
+    R -- evidence snapshot --> LR
+    LR -. only if an email is requested .-> TE["tech-email"]
+    R -- confirmed cause only --> TE
+    L -- resolution gate passed --> PM["incident-postmortem"]
+    PM --> TE
+    CR -- defect behind an incident --> R
+    R -. code-level fix .-> DBG["engineering:debug"]
+    L -. fix needs deploy .-> DEP["engineering:deploy-checklist"]
+    PM -. runbook actions .-> DOC["engineering:documentation"]
+    IN2(["On demand: COO review"]) --> COO["coo-portfolio-review - standalone"]
+    COO -. optional drift lens .-> TD["engineering:tech-debt"]

@@ -1,0 +1,57 @@
+flowchart TD
+    Start(["Alert, report, or user request"]) --> Intake["Intake and phase routing [sre-incident-lifecycle]"]
+    Intake --> Dest{"Output destination known?"}
+    Dest -- no --> AskDest[/"Human: choose inline, file, Claude Docs, or KB"/]
+    AskDest --> Phase
+    Dest -- yes --> Phase{"Which phase?"}
+
+    Phase -- new incident --> Triage["Declare and triage [sre-incident-lifecycle]"]
+    Triage --> Live
+    Phase -- ongoing --> Live["Live report update [incident-live-report]"]
+
+    Live --> Next{"What changed?"}
+    Next -- causal question open --> RCAFan["Subagent: RCA worker"]
+    RCAFan --> RCA["Hand-off to RCA workflow [rca-investigation]"]
+    RCA --> RCAProd{"Prod-changing test?"}
+    RCAProd -- yes --> ApproveTest[/"Human: approve test, risk, rollback"/]
+    ApproveTest --> RCA
+    RCAProd -- no --> MapBack["Map findings: known, suspected, ruled out, unknown"]
+    MapBack --> Live
+
+    Next -- update due or requested --> CommsFan["Subagent: comms drafter"]
+    CommsFan --> CommsType{"Audience?"}
+    CommsType -- channel --> Post["Short status post [incident-live-report]"]
+    CommsType -- email requested --> Email["Structured email [tech-email]"]
+    CommsType -- external --> Ext["External notice draft [sre-incident-lifecycle]"]
+    Post --> SendGate
+    Email --> SendGate
+    Ext --> SendGate
+    SendGate{"Explicit send authorization?"}
+    SendGate -- no --> DraftOnly["Return draft only"]
+    SendGate -- yes --> Send[/"Human-approved send, logged"/]
+    DraftOnly --> Live
+    Send --> Live
+
+    Next -- fix needs deploy --> Deploy["Pre-deploy checks [engineering:deploy-checklist]"]
+    Deploy --> ProdGate[/"Human: authorize prod change"/]
+    ProdGate --> Live
+
+    Next -- recovery observed --> Gate{"Exit criteria met for observation period?"}
+    Gate -- no --> Monitoring["Status Mitigated or Monitoring"]
+    Monitoring --> Live
+    Monitoring -. postmortem requested early .-> PMEarly["Draft - incident ongoing [incident-postmortem]"]
+    Gate -- yes --> Confirm[/"Human: IC or user confirms Resolved"/]
+    Confirm --> PM["Postmortem draft [incident-postmortem]"]
+
+    PM --> PMFan["Subagents: timeline, KPI, blameless review"]
+    PMFan --> PM
+    PM --> Review{"Material claims reviewed?"}
+    Review -- no --> Draft["Keep status Draft or In review"]
+    Draft --> PM
+    Review -- yes --> Share[/"Human: approve sharing"/]
+    Share --> Follow["Follow-up on request: tracker, runbook, summary email"]
+    Follow --> Runbook["Runbook actions [engineering:documentation]"]
+    Follow --> Summary["Leadership summary [tech-email]"]
+
+    Phase -- why did it happen --> RCAFan
+    Phase -- write postmortem --> Gate

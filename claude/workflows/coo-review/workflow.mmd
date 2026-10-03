@@ -1,0 +1,55 @@
+flowchart TD
+    U(["User asks for a COO review"]) --> SCH{"Started by a scheduled task?"}
+    SCH -- yes --> STOPS["Stop: on-demand only, nothing written [coo-portfolio-review]"]
+    SCH -- no --> WS{"COO workspace reachable in a connected or local folder?"}
+    WS -- no --> BOOT{"User authorizes creating one?"}
+    BOOT -- no --> RO["Read-only review, state not persisted [coo-portfolio-review]"]
+    BOOT -- yes --> CFG["Create coo skeleton, user confirms CONFIG.md [coo-portfolio-review]"]
+    CFG --> LOCK
+    WS -- yes --> LOCK{"mkdir coo/.run-lock succeeds?"}
+    LOCK -- no --> HELD["Report recorded owner, change nothing"]
+    HELD --> REC{"User confirms owner stopped?"}
+    REC -- no --> END0(["Stop run"])
+    REC -- yes --> RENAME["Rename stale lock to .released-locks"] --> LOCK
+    LOCK -- yes --> OWN["Allocate run ID, stub review, write owner.json"]
+    OWN --> LOAD["Load CONFIG, CURRENT, STATE, decisions, knowledge queue"]
+    LOAD --> ACC{"All configured project folders reachable?"}
+    ACC -- no --> ASK["One access request for missing configured folders"]
+    ASK --> FRESH
+    ACC -- yes --> FRESH["Freshness pass on every selected project [coo-portfolio-review]"]
+    FRESH --> CHG{"Changed, open findings, stale, or user asked?"}
+    CHG -- no --> KEEP["Keep prior state plus freshness result; not refreshed if inaccessible"]
+    CHG -- yes --> SIZE{"Substantial and independent?"}
+    SIZE -- no --> LOCAL["Coordinator inspects locally with drift lens"]
+    SIZE -- yes --> FAN["Fan out: up to 2 read-only subagents, one project each"]
+    FAN --> W1["Subagent A returns six-part contract"]
+    FAN --> W2["Subagent B returns six-part contract"]
+    W1 --> RECON
+    W2 --> RECON
+    LOCAL --> RECON
+    KEEP --> RECON["Reconcile: observed vs intent vs inferred vs unknown [coo-portfolio-review]"]
+    RECON --> PRIO["Select up to 3 outcomes, fewer if unsupported"]
+    PRIO --> GATE{"Consequential choice only the user can make?"}
+    GATE -- yes --> DREC["Persist proposed D-NNN, reuse open IDs"]
+    GATE -- no --> KQ
+    DREC --> KQ["Queue unreviewed K-NNN candidates"]
+    KQ --> LIN{"Linear connector and mapping confirmed?"}
+    LIN -- no --> PLAN["Record blocked change plan, no writes"]
+    LIN -- yes --> SYNC["Coordinator only: re-read, write non-blocked changes"]
+    SYNC --> VER["Re-read records and verify each change"]
+    VER --> SAVE
+    PLAN --> SAVE["Write review, CURRENT, STATE for successful inspections"]
+    SAVE --> REL["Verify token, release lock; rename if delete not allowed"]
+    REL --> PEND{"Open decisions need the user?"}
+    PEND -- no --> PRES(["Present review, end with needed decisions"])
+    PEND -- yes --> AUQ["Human approval: AskUserQuestion per D-NNN"]
+    AUQ --> DEC{"Clear decision given?"}
+    DEC -- no --> PRES
+    DEC -- yes --> RELOCK["Reacquire lock with same run ID, reload state"]
+    RELOCK --> UPD["Update D-NNN status history"]
+    UPD --> SYNC2["Re-read Linear, apply and verify dependent changes"]
+    SYNC2 --> SAVE2["Append resumed section, release lock"] --> PRES
+    PRES -. optional, on request .-> PUB["Publish private Artifact or Claude Docs view"]
+    PRES -. hand-off .-> TD["[engineering:tech-debt] project debt audit"]
+    PRES -. hand-off, separately authorized .-> ADR["[engineering:architecture] project ADR"]
+    PRES -. later .-> KREV["Knowledge candidate review"]

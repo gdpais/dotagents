@@ -1,0 +1,60 @@
+flowchart TD
+    START([Incident or failure question]) --> ORCH{Driven by sre-incident-lifecycle?}
+    ORCH -- yes --> FRAME
+    ORCH -- no --> FRAME
+    FRAME[1 Frame problem - rca-investigation] --> ACTIVE{Impact active and critical?}
+    ACTIVE -- yes --> MITIG[Focus on mitigation - evidence stays provisional]
+    MITIG --> LIVE[[incident-live-report - Investigation section]]
+    MITIG --> INTAKEQ
+    ACTIVE -- no --> INTAKEQ{Evidence needs conversion or coverage checks?}
+    INTAKEQ -- yes --> INV[Run evidence_inventory once - coordinator]
+    INV --> FANOUT1{{Fan-out intake workers - Agent tool}}
+    FANOUT1 --> IW1[Intake worker A - parse_logs]
+    FANOUT1 --> IW2[Intake worker B - inspect_capture]
+    IW1 --> MERGE1[Coordinator merges manifest and coverage]
+    IW2 --> MERGE1
+    INTAKEQ -- no --> TL
+    MERGE1 --> PREPONLY{Evidence prep only?}
+    PREPONLY -- yes --> HANDOFF([Deliver intake bundle - no causal claims])
+    PREPONLY -- no --> TL
+    TL[2 Causal timeline - rca-investigation] --> FANOUT2{{Fan-out evidence-source analysts}}
+    FANOUT2 --> EA1[App logs analyst]
+    FANOUT2 --> EA2[DB or network analyst]
+    FANOUT2 --> EA3[Change-history analyst]
+    EA1 --> LEDGER
+    EA2 --> LEDGER
+    EA3 --> LEDGER
+    LEDGER[3 Evidence ledger - coordinator only writes] --> SNAP[(Publish snapshot vN)]
+    SNAP --> HYP[4 Ranked falsifiable hypotheses]
+    HYP --> HW{{Optional hypothesis workers - generate or challenge}}
+    HW --> HYP2[Coordinator ranks by evidence fit]
+    HYP2 --> TEST[5 Design discriminating test]
+    TEST --> PRODCHG{Test changes production?}
+    PRODCHG -- yes --> APPROVE{User approves with risk and rollback?}
+    APPROVE -- no --> PLAN[Ordered test plan only]
+    APPROVE -- yes --> RUN[Run test and post-check]
+    PRODCHG -- no --> RUN
+    RUN --> UPD[Record result, update ledger, re-rank]
+    PLAN --> UPD
+    UPD --> SNAP
+    UPD --> TRK{Issue tracking active?}
+    TRK -- yes --> TW[Tracker worker - single writer per ticket]
+    TW --> CONN{Tracker connector available?}
+    CONN -- yes --> PUB[Linear or Jira or GitHub update]
+    CONN -- no --> DRAFT[Portable draft]
+    TRK -- no --> GATE
+    UPD --> GATE{6 Causality gate met?}
+    GATE -- no, tests remain --> TEST
+    GATE -- no, no safe test --> NC[root cause not confirmed plus gaps]
+    GATE -- candidate --> REV{{Independent reviewer subagent}}
+    REV --> CONF[Confirmed or strongly supported]
+    CONF --> CODEQ{Defect localized to accessible code and fix wanted?}
+    CODEQ -- yes --> DEBUG[7 engineering:debug reproduce isolate fix regression test]
+    DEBUG --> REGATE[Results back to ledger, re-apply gate]
+    REGATE --> OUT
+    CODEQ -- no --> OUT
+    NC --> OUT
+    OUT[RCA output - rca-investigation] --> PM[[incident-postmortem]]
+    OUT --> EMAIL[[tech-email]]
+    OUT --> LIVE
+    DEBUG -. deploy asked .-> DEPLOY[[engineering:deploy-checklist]]

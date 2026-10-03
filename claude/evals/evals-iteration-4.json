@@ -1,0 +1,110 @@
+{
+  "skill_name": "codex-ports",
+  "iteration": 4,
+  "evals": [
+    {
+      "id": 0,
+      "eval_name": "incident-live-report-and-pt-email",
+      "prompt": "We have an incident. Since about 14:05 Lisbon time the checkout API is returning 5xx: Grafana shows ~12% of POST /api/checkout failing on edge-01 and edge-02 (window 14:05-14:20, still ongoing). checkout-svc v2.31 was deployed at 13:58. The payments provider status page is green. Rui is on call and is checking the DB pool graphs; Marta (DBA) says DB CPU is at 30%. No customer comms have gone out yet. Write the live incident report and a short email to the leadership team in Portuguese (they're in Lisbon). I'm Gabriel, the incident lead.",
+      "expected_output": "A live incident report (not a postmortem) plus a ready-to-send PT-PT email draft. Nothing sent.",
+      "files": [],
+      "assertions": [
+        "[Substance] The v2.31 deploy is presented as a hypothesis/candidate, not as the root cause",
+        "[Substance] No invented facts: no version numbers, times, owners, commitments, impact or customer figures that are not in the prompt (placeholders and 'unknown' are fine)",
+        "[Substance] Figures are consistent between the live report and the email (\u224812%, 14:05, 13:58, 14:05-14:20 window)",
+        "[Substance] Output does not claim that the email or any update was sent",
+        "[House] Live report separates known, suspected, ruled out and unknown (or equivalent labels)",
+        "[House] The report states one timezone for its timestamps",
+        "[House] No 'MTTR' (or 'mean time to ...') label is used for this single incident",
+        "[House] No severity level is assigned or proposed (severity is out of scope)",
+        "[House] Live report is in English (the user's language); only the email is in Portuguese",
+        "[House] Email body is Portuguese from Portugal (no Brazilian forms such as 'equipe', 'time' meaning team, 'usu\u00e1rio', 'voc\u00ea', gerund progressive)",
+        "[House] Email uses 'Resumo:' (or equivalent summary heading) rather than 'Causa Raiz:' since the cause is unconfirmed",
+        "[House] Email contains a DETAILS section after the closing",
+        "[House] Every next-step action in the email has a bracketed owner or an explicit to-be-assigned placeholder"
+      ]
+    },
+    {
+      "id": 1,
+      "eval_name": "rca-checkout-503s",
+      "prompt": "Checkout was failing on 30 Sep for ~40 minutes around lunchtime. The evidence is in the inputs folder: HAProxy log from edge-01, a Grafana metrics export, the change log and the on-call notes. Find the root cause and tell me how confident we can be. Ana thinks it was the CDN cert rotation.",
+      "expected_output": "An RCA identifying the DB pool reduction (config v14, 50->10) as the mechanism, dismissing the CDN hypothesis with evidence, with an explicit confidence level.",
+      "files": [],
+      "assertions": [
+        "[Substance] Identifies the checkout-svc config v14 DB pool reduction (50 -> 10) as the trigger/cause",
+        "[Substance] Rejects or demotes the CDN certificate rotation hypothesis citing evidence (e.g. only be_checkout affected, sQ queue timeouts, cart unaffected, timing)",
+        "[Substance] Explicitly reconciles the UTC HAProxy timestamps with the Lisbon (UTC+1) change log/metrics",
+        "[Substance] Notes that recovery after rollback supports but does not by itself prove the cause, or proposes a discriminating test",
+        "[Substance] Mentions the evidence gap that the edge-02 log is missing",
+        "[Substance] Treats the DBA 'DB is fine' statement as reported/unverified, or checks it against the CPU metric",
+        "[Substance] No invented facts (no metrics, owners, times or changes absent from the inputs)",
+        "[Substance] Every figure that appears more than once matches, and each stated percentage equals its stated count/total",
+        "[House] States confidence using one of: confirmed, strongly supported, unconfirmed, unknown",
+        "[House] Separates trigger, root cause/mechanism and contributing conditions"
+      ]
+    },
+    {
+      "id": 2,
+      "eval_name": "code-review-pricing-branch",
+      "prompt": "Review my branch feature/pricing-refactor against main before I merge. The repo is inputs/billing-svc.",
+      "expected_output": "A findings-first review flagging the cross-tenant read, SQL injection, N+1 and rounding change, without modifying the repo.",
+      "files": [],
+      "assertions": [
+        "[Substance] Flags removal of tenant scoping in get_invoice as a blocking/high-priority defect (any scale)",
+        "[Substance] Flags the f-string status filter in search_invoices as SQL injection, blocking/high-priority (any scale)",
+        "[Substance] Flags the per-line product price lookup as an N+1 query",
+        "[Substance] Flags the rounding change (int(total) truncation vs per-line round) as a money/correctness defect",
+        "[Substance] No false-positive findings: every reported defect is real in the changed code",
+        "[Substance] Repository left unchanged: same HEAD, branch and clean working tree",
+        "[House] Findings use P0-P3 priority labels",
+        "[House] Each finding cites a file:line location",
+        "[House] Contains no style-only findings (naming, formatting, docstrings, commit messages)",
+        "[House] States the comparison/merge base or the reviewed range"
+      ]
+    },
+    {
+      "id": 4,
+      "eval_name": "rca-complex-multi-source",
+      "prompt": "INC-2219 from Monday 28 Sep: checkout payment confirmations were failing for roughly an hour mid-morning. Everything we exported is in the inputs folder: both HAProxy edge logs, the payments-gw IIS log, Grafana exports for fraud-svc, checkout-svc and the orders DB, the change log and our Slack notes. People are blaming the DB failover and the CDN change. I need the root cause, how sure we are, the impact in numbers, and what actually fixed it.",
+      "expected_output": "RCA attributing failures to payments-gw v5.2 synchronous fraud check (3 s timeout) combined with fraud-svc minReplicas cut and campaign load; DB failover and CDN ruled out; edge-02 clock offset detected; impact quantified; flag-off identified as the fix.",
+      "files": [],
+      "assertions": [
+        "[Substance] Identifies payments-gw v5.2 synchronous fraud check (flag fraud_check_sync, 3 s timeout) as the enabling change / trigger",
+        "[Substance] Identifies the fraud-svc minReplicas cut (6 -> 2) as a contributing condition or co-cause",
+        "[Substance] Identifies the campaign traffic increase as a contributing condition",
+        "[Substance] Rules out the DB failover with evidence (\u224820 s blip at 10:05 Lisbon, after onset, different failure signature)",
+        "[Substance] Rules out the CDN Brotli change with evidence (static assets only / only the confirm path affected)",
+        "[Substance] Detects the edge-02 clock offset (about +95 s) and corrects or excludes it",
+        "[Substance] Notes that only /api/checkout/confirm (payment path) was materially affected",
+        "[Substance] Quantifies impact with a denominator (failed vs total confirm requests, or a failure rate over the window)",
+        "[Substance] Identifies flag fraud_check_sync OFF as what ended the impact, with scaling fraud-svc as a partial mitigation",
+        "[Substance] Reconciles UTC logs with Lisbon (UTC+1) change log, notes and metrics",
+        "[Substance] Does not add edge 503s and gateway 504s into one failure total unless it shows they are distinct events (or labels the sum as an upper bound)",
+        "[Substance] Every figure that appears more than once matches, and each stated percentage equals its stated count/total",
+        "[Substance] No invented facts (no metrics, owners, times or changes absent from the inputs)",
+        "[House] States confidence using one of: confirmed, strongly supported, unconfirmed, unknown"
+      ]
+    },
+    {
+      "id": 5,
+      "eval_name": "rca-no-change-search",
+      "prompt": "Search was slow and timing out on 1 Oct late morning. Evidence is in the inputs folder: HAProxy edge-01 log, the search-svc request log, Elasticsearch node metrics, the change log and our Slack notes. Tiago is sure it was the reco v3.4 deploy. What was the root cause, how sure are we, what was the impact and what fixed it?",
+      "expected_output": "Disk on es-node-3 hit the 90% high watermark, triggering shard relocation and a search queue on that node; reco deploy and checkout flag ruled out; index cleanup at 11:48 Lisbon ended it.",
+      "files": [],
+      "assertions": [
+        "[Substance] Does not attribute the incident to the reco v3.4 deploy, and rejects it with evidence (e.g. be_reco healthy, slowness confined to es-node-3, timing)",
+        "[Substance] Does not attribute the incident to the checkout feature flag (starts after onset, different service)",
+        "[Substance] Identifies es-node-3 as where the slow requests and timeouts concentrate",
+        "[Substance] Identifies es-node-3 disk reaching the 90% high watermark, with shard relocation / search queue build-up, as the mechanism",
+        "[Substance] Identifies the old-index cleanup at 11:48 Lisbon (disk ~92% -> 78%) as what ended the impact",
+        "[Substance] Reconciles UTC logs with the Lisbon change log, notes and metrics",
+        "[Substance] Quantifies impact with a denominator (e.g. search 504s or slow requests out of total search requests in the window)",
+        "[Substance] Does not present a recorded change as the cause when the evidence points to capacity (states the cause is not a deploy/config change, or equivalent)",
+        "[Substance] No invented facts (no metrics, owners, times or changes absent from the inputs)",
+        "[Substance] Every figure that appears more than once matches, and each stated percentage equals its stated count/total",
+        "[House] States confidence using one of: confirmed, strongly supported, unconfirmed, unknown",
+        "[House] Separates trigger, root cause/mechanism and contributing conditions"
+      ]
+    }
+  ]
+}

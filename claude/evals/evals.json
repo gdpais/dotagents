@@ -1,0 +1,98 @@
+{
+  "skill_name": "codex-ports",
+  "evals": [
+    {
+      "id": 0,
+      "eval_name": "incident-live-report-and-pt-email",
+      "prompt": "We have an incident. Since about 14:05 Lisbon time the checkout API is returning 5xx: Grafana shows ~12% of POST /api/checkout failing on edge-01 and edge-02 (window 14:05-14:20, still ongoing). checkout-svc v2.31 was deployed at 13:58. The payments provider status page is green. Rui is on call and is checking the DB pool graphs; Marta (DBA) says DB CPU is at 30%. No customer comms have gone out yet. Write the live incident report and a short email to the leadership team in Portuguese (they're in Lisbon). I'm Gabriel, the incident lead.",
+      "expected_output": "A live incident report (not a postmortem) plus a ready-to-send PT-PT email draft. Nothing sent.",
+      "files": [],
+      "assertions": [
+        "Severity is absent or explicitly marked proposed/unconfirmed (not asserted as fact)",
+        "Live report separates known, suspected, ruled out and unknown (or equivalent labels)",
+        "The v2.31 deploy is presented as a hypothesis/candidate, not as the root cause",
+        "The report states one timezone for its timestamps",
+        "No 'MTTR' (or 'mean time to ...') label is used for this single incident",
+        "Email body is Portuguese from Portugal (no Brazilian forms such as 'equipe', 'time' meaning team, 'usu\u00e1rio', 'voc\u00ea')",
+        "Email uses 'Resumo:' (or equivalent 'summary' heading) rather than 'Causa Raiz:' since cause is unconfirmed",
+        "Email contains a DETAILS section after the closing",
+        "Every next-step action has a bracketed owner or an explicit to-be-assigned placeholder",
+        "Output does not claim that the email or any update was sent",
+        "The live report is written in English (the language the user wrote in); only the email is in Portuguese"
+      ]
+    },
+    {
+      "id": 1,
+      "eval_name": "rca-checkout-503s",
+      "prompt": "Checkout was failing on 30 Sep for ~40 minutes around lunchtime. The evidence is in the inputs folder: HAProxy log from edge-01, a Grafana metrics export, the change log and the on-call notes. Find the root cause and tell me how confident we can be. Ana thinks it was the CDN cert rotation.",
+      "expected_output": "An RCA identifying the DB pool reduction (config v14, 50->10) as the mechanism, dismissing the CDN hypothesis with evidence, with an explicit confidence level.",
+      "files": [],
+      "assertions": [
+        "Identifies the checkout-svc config v14 DB pool reduction (50 -> 10) as the trigger/cause",
+        "Rejects or demotes the CDN certificate rotation hypothesis citing evidence (e.g. only be_checkout affected, sQ queue timeouts, cart unaffected, timing)",
+        "Explicitly reconciles the UTC HAProxy timestamps with the Lisbon (UTC+1) change log/metrics",
+        "States a confidence level using one of: confirmed, strongly supported, unconfirmed, unknown",
+        "Separates trigger, root cause/mechanism and contributing conditions (e.g. reporting job move)",
+        "Notes that recovery after rollback supports but does not by itself prove the cause, or proposes a discriminating test",
+        "Mentions the evidence gap that the edge-02 log is missing",
+        "Treats the DBA 'DB is fine' statement as reported, not verified (or checks it against the CPU metric)"
+      ]
+    },
+    {
+      "id": 2,
+      "eval_name": "code-review-pricing-branch",
+      "prompt": "Review my branch feature/pricing-refactor against main before I merge. The repo is inputs/billing-svc.",
+      "expected_output": "A findings-first review flagging the cross-tenant read, SQL injection, N+1 and rounding change, without modifying the repo.",
+      "files": [],
+      "assertions": [
+        "Flags removal of tenant scoping in get_invoice as P0 or P1 (cross-tenant read)",
+        "Flags the f-string status filter in search_invoices as SQL injection at P0 or P1",
+        "Flags the per-line product price lookup as an N+1 query",
+        "Flags the rounding change (int(total) truncation vs per-line round) as a money/correctness defect",
+        "Each finding cites a file:line location",
+        "Contains no style-only findings (naming, formatting, docstrings)",
+        "Repository left unchanged: same HEAD, branch and clean working tree",
+        "States the comparison/merge base or the reviewed range"
+      ]
+    },
+    {
+      "id": 3,
+      "eval_name": "coo-review-two-projects",
+      "prompt": "Run a COO review of my projects. I'm working in inputs/projects/platform-api (treat that as my current project). No Linear connector is attached in this session. Today is 2026-10-02.",
+      "expected_output": "A review saved under platform-api/coo with lock released, billing-web untouched, D-001 still pending with drift noted, Linear sync blocked with a change plan.",
+      "files": [],
+      "assertions": [
+        "A new review file exists at platform-api/coo/reviews/2026-10-02-01.md (or similar dated name) inside the invoking project",
+        "No coo/.run-lock directory is left behind",
+        "billing-web is unchanged (still only 'M TODO.md' and '?? EXPORT_CONTRACT.md'; no new files)",
+        "platform-api has no changes outside coo/",
+        "At most three portfolio priorities are presented",
+        "D-001 is not marked accepted; the review notes pagination shipped on the provisional contract while D-001 was still proposed",
+        "The uncommitted billing-web export contract draft is noticed",
+        "Linear synchronization is reported as blocked/not applied, with the intended changes listed",
+        "No scheduled task or recurring reminder is created or proposed",
+        "No personal follow-up or reminder suggestions are listed (e.g. dated 'remind me'/'check on' items)"
+      ]
+    },
+    {
+      "id": 4,
+      "eval_name": "rca-complex-multi-source",
+      "prompt": "INC-2219 from Monday 28 Sep: checkout payment confirmations were failing for roughly an hour mid-morning. Everything we exported is in the inputs folder: both HAProxy edge logs, the payments-gw IIS log, Grafana exports for fraud-svc, checkout-svc and the orders DB, the change log and our Slack notes. People are blaming the DB failover and the CDN change. I need the root cause, how sure we are, the impact in numbers, and what actually fixed it.",
+      "expected_output": "RCA attributing failures to payments-gw v5.2 synchronous fraud check (3 s timeout) combined with fraud-svc minReplicas cut and campaign load; DB failover and CDN ruled out; edge-02 clock offset detected; impact quantified; flag-off identified as the fix.",
+      "files": [],
+      "assertions": [
+        "Identifies payments-gw v5.2 synchronous fraud check (flag fraud_check_sync, 3 s timeout) as the enabling change / trigger",
+        "Identifies the fraud-svc minReplicas cut (6 -> 2) as a contributing condition or co-cause",
+        "Identifies the campaign traffic increase as a contributing condition",
+        "Rules out the DB failover with evidence (\u224820 s blip at 10:05 Lisbon, after onset, different failure signature)",
+        "Rules out the CDN Brotli change with evidence (static assets only / only the confirm path affected)",
+        "Detects the edge-02 clock offset (about +95 s) and corrects or excludes it",
+        "Notes that only /api/checkout/confirm (payment path) was materially affected",
+        "Quantifies impact with a denominator (failed vs total confirm requests, or a failure rate over the window)",
+        "Identifies flag fraud_check_sync OFF as what ended the impact, with scaling fraud-svc as a partial mitigation",
+        "States confidence using one of: confirmed, strongly supported, unconfirmed, unknown",
+        "Reconciles UTC logs with Lisbon (UTC+1) change log, notes and metrics"
+      ]
+    }
+  ]
+}
