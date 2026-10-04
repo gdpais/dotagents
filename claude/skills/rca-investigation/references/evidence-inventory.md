@@ -1,9 +1,9 @@
 # Evidence inventory and incremental preparation
 
-Use `scripts/evidence_inventory.py` (run from the `rca-investigation` skill folder) when comparing supplied evidence with an earlier intake or identifying exact duplicate files. It uses Python 3 standard libraries and reads only explicitly listed files. It streams hashes so large exports need not fit in memory. Originals and previous inventories are never modified.
+Use `scripts/evidence_inventory.ts` (run from the `rca-investigation` skill folder) when comparing supplied evidence with an earlier intake or identifying exact duplicate files. It needs only Bun and reads only explicitly listed files. It streams hashes so large exports need not fit in memory, and hashes several large files in parallel. Fingerprints and source IDs are identical to the earlier Python helper, so its inventories remain valid `--previous` input. Originals and previous inventories are never modified.
 
 ```sh
-python3 scripts/evidence_inventory.py --config /case/preparation-config.json --previous /case/inventory-v1.json /case/haproxy.log /case/iis.log
+bun scripts/evidence_inventory.ts --config /case/preparation-config.json --previous /case/inventory-v1.json /case/haproxy.log /case/iis.log
 ```
 
 The JSON result goes to stdout; save it separately as a new derivative if needed. Exit 0 means supplied files were fingerprinted; exit 1 means at least one source was unreadable or changed during reading (the partial JSON is still returned); exit 2 means invalid arguments, configuration or prior inventory. Exit 0 does not establish usable log content or continuous coverage.

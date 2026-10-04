@@ -1,6 +1,6 @@
 # Capture usability inspection
 
-Use `scripts/inspect_capture.py INPUT --timeout 60` for supplied packet captures when packet availability or file readability is uncertain. Requires locally available Wireshark `capinfos`; it installs nothing and performs no collection or conversion. Output is JSON on stdout. Exit 0 means usable or partial; exit 2 means unusable or not inspected. Inspect the status and reason even after exit 0.
+Use `bun scripts/inspect_capture.ts INPUT --timeout 60` for supplied packet captures when packet availability or file readability is uncertain. Requires locally available Wireshark `capinfos`; it installs nothing and performs no collection or conversion. Output is JSON on stdout. Exit 0 means usable or partial; exit 2 means unusable or not inspected. Inspect the status and reason even after exit 0.
 
 The helper asks capinfos to scan the capture, reports its exit status, packet count and first/last timestamps as Unix epoch seconds (retaining the reported fractional precision). It disables capture and packet comment output. A successful scan with nonzero packets supports further packet inspection; it does not establish complete payloads, uninterrupted coverage, incident overlap, decryptability, HTTP visibility, request attribution or cause. Follow up with targeted packet inspection for those questions. Capture clock accuracy remains unverified.
 
