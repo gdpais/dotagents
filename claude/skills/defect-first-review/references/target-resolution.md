@@ -25,7 +25,7 @@ Rule (from the review-agent discipline):
 Helper:
 
 ```
-python3 <skill-dir>/scripts/resolve_review_target.py -C <repo> --base main
+bun <skill-dir>/scripts/resolve_review_target.ts -C <repo> --base main
 ```
 
 Equivalent by hand:
@@ -44,7 +44,7 @@ Stale remote refs: the helper never fetches. If the remote-tracking ref may be s
 ## Uncommitted work
 
 ```
-python3 <skill-dir>/scripts/resolve_review_target.py -C <repo> --uncommitted
+bun <skill-dir>/scripts/resolve_review_target.ts -C <repo> --uncommitted
 git diff HEAD            # staged + unstaged
 git diff --cached        # staged only, if the user asked for "what I'm about to commit"
 git ls-files --others --exclude-standard   # untracked: read each file whole
@@ -55,7 +55,7 @@ In a repository with no commits yet, the helper falls back to `git diff --cached
 ## Commit
 
 ```
-python3 <skill-dir>/scripts/resolve_review_target.py -C <repo> --commit <rev>
+bun <skill-dir>/scripts/resolve_review_target.ts -C <repo> --commit <rev>
 git diff <parent> <sha>        # or: git show --root <sha> for a root commit
 ```
 

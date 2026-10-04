@@ -24,9 +24,9 @@ Identify exactly what would change, before reading any code. Record the resolved
 
 | Input | How to resolve | Notes |
 |---|---|---|
-| Base branch ("review my branch against main") | `python3 scripts/resolve_review_target.py --base <branch>` then `git diff <merge_base>` | Diff the changes that would actually merge, never the branch tip. See rule below. |
-| Uncommitted work | `python3 scripts/resolve_review_target.py --uncommitted`, then `git diff HEAD` and read each untracked file | Staged + unstaged + untracked. |
-| Commit | `python3 scripts/resolve_review_target.py --commit <rev>`, then the printed `diff_command` | Root commits handled. |
+| Base branch ("review my branch against main") | `bun scripts/resolve_review_target.ts --base <branch>` then `git diff <merge_base>` | Diff the changes that would actually merge, never the branch tip. See rule below. |
+| Uncommitted work | `bun scripts/resolve_review_target.ts --uncommitted`, then `git diff HEAD` and read each untracked file | Staged + unstaged + untracked. |
+| Commit | `bun scripts/resolve_review_target.ts --commit <rev>`, then the printed `diff_command` | Root commits handled. |
 | PR URL or number | Source-control connector or `gh pr view <n> --json baseRefName,headRefOid,title,body,files` + `gh pr diff <n>` | Read head versions with `git show <headRefOid>:<path>` after fetching the PR ref; never check it out over the user's working tree. |
 | Pasted diff / patch | Use as given | Call sites outside the diff may be unavailable; state that limit and lower confidence accordingly. |
 

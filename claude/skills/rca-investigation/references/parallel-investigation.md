@@ -70,10 +70,10 @@ Tests are reported separately as **executed** (with the command or query, actual
 
 ### Intake worker
 
-- **Receives:** its assigned sources only, their stable source IDs, the intake window, known timezone assumptions, the helper commands to use (`scripts/parse_logs.py`, `scripts/inspect_capture.py`), and its own output directory.
+- **Receives:** its assigned sources only, their stable source IDs, the intake window, known timezone assumptions, the helper commands to use (`scripts/parse_logs.ts`, `scripts/inspect_capture.ts`), and its own output directory.
 - **Does:** usability checks and extraction for its sources, following [Evidence intake](evidence-intake.md). It never edits the manifest, coverage document or ledger. It checks destinations before redirecting output.
 - **Returns:** source locators, the checks it ran with command options and exit status, parse failures and rejected-record counts, coverage limits (`overlap` / `outside` / `unknown`), derivative paths, and findings usable before full packaging.
-- The common inventory (`scripts/evidence_inventory.py`) runs once, in the coordinator, before delegation. Workers get only the added or changed sources from its reuse plan.
+- The common inventory (`scripts/evidence_inventory.ts`) runs once, in the coordinator, before delegation. Workers get only the added or changed sources from its reuse plan.
 
 ### Evidence-source analyst
 

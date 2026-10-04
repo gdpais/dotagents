@@ -4,7 +4,7 @@ flowchart TD
     B1 --> C
     B -- yes --> C[Resolve target and merge base - defect-first-review]
     C --> C1{Input type}
-    C1 -- base branch / commit / uncommitted --> C2[resolve_review_target.py - read-only git]
+    C1 -- base branch / commit / uncommitted --> C2[resolve_review_target.ts - read-only git]
     C1 -- PR --> C3[Source-control connector or gh - no checkout]
     C1 -- pasted diff --> C4[Use as given - limited verification]
     C2 --> D

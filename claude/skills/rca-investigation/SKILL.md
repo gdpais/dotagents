@@ -9,7 +9,7 @@ Determine the best-supported causal explanation for a production incident or tec
 
 Do not force a root cause when the evidence is insufficient. A useful outcome may be `root cause not confirmed`, accompanied by the strongest candidates, eliminated causes, evidence gaps, and the next discriminating tests.
 
-**Requirements:** none for the core procedure. The optional helpers in `scripts/` need Python 3.9+ with an IANA timezone database. `scripts/inspect_capture.py` also needs a locally installed Wireshark `capinfos`. Monitoring, source-control and issue-tracker connectors are optional evidence sources and destinations; without them, work from supplied material and return portable drafts.
+**Requirements:** none for the core procedure. The optional helpers in `scripts/` need [Bun](https://bun.sh) 1.1+ (`bun scripts/<helper>.ts ...`); time zones come from Bun's bundled IANA database. `scripts/inspect_capture.ts` also needs a locally installed Wireshark `capinfos`. Monitoring, source-control and issue-tracker connectors are optional evidence sources and destinations; without them, work from supplied material and return portable drafts.
 
 ## Use when
 
@@ -39,7 +39,7 @@ Use during an active incident or after recovery. Adapt the depth to the investig
 
 Default to reading evidence directly, including large logs: one script pass over the raw files (filter, count, bucket by minute) is cheaper than converting them.
 
-**Convert logs (the `parse_logs.py` JSONL normalization) only when logs from two or more different platforms or formats have to be compared or joined** - for example HAProxy with IIS, or edge logs with application logs - and the comparison cannot be done reliably on the raw files (different timestamp formats or zones, large volume, request matching across sources). If the logs share no field that relates their records (no common request ID or correlation key), there is nothing to join: compare them by time window from the raw files and do not convert. Several logs from the same platform (for example two HAProxy edges) are not a reason to convert either; compare them directly and correct clock offsets in the script. Small multi-platform evidence that you can line up by hand is also read directly.
+**Convert logs (the `parse_logs.ts` JSONL normalization) only when logs from two or more different platforms or formats have to be compared or joined** - for example HAProxy with IIS, or edge logs with application logs - and the comparison cannot be done reliably on the raw files (different timestamp formats or zones, large volume, request matching across sources). If the logs share no field that relates their records (no common request ID or correlation key), there is nothing to join: compare them by time window from the raw files and do not convert. Several logs from the same platform (for example two HAProxy edges) are not a reason to convert either; compare them directly and correct clock offsets in the script. Small multi-platform evidence that you can line up by hand is also read directly.
 
 Other intake helpers are used only when coverage, duplication or integrity is in question (overlapping exports, gaps, truncated or rotated files), when the user asks for a prepared evidence package, or when evidence is handed to subagents. Then read [Evidence intake](references/evidence-intake.md).
 
@@ -49,9 +49,9 @@ Use the reference for preparation and incremental updates. RCA retains causal ti
 
 Deterministic helpers (run from this skill's folder; each reference documents exit codes and limits):
 
-- `scripts/evidence_inventory.py`: fingerprints sources, finds duplicates and plans incremental reuse. See [Evidence inventory](references/evidence-inventory.md).
-- `scripts/parse_logs.py`: converts IIS W3C, HAProxy HTTP and schema-mapped CSV logs to traceable JSONL. See [Log parsers](references/log-parsers.md).
-- `scripts/inspect_capture.py`: checks packet-capture usability and time range. See [Capture inspection](references/capture-inspection.md).
+- `scripts/evidence_inventory.ts`: fingerprints sources, finds duplicates and plans incremental reuse. See [Evidence inventory](references/evidence-inventory.md).
+- `scripts/parse_logs.ts`: converts IIS W3C, HAProxy HTTP and schema-mapped CSV logs to traceable JSONL. See [Log parsers](references/log-parsers.md).
+- `scripts/inspect_capture.ts`: checks packet-capture usability and time range. See [Capture inspection](references/capture-inspection.md).
 
 ## Optional issue tracking
 

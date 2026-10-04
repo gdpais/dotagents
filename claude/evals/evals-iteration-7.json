@@ -81,7 +81,7 @@
         "[Substance] Figures match the source data when recounted (counts, rates, times; 1-decimal rounding ok)",
         "[House] States confidence using one of: confirmed, strongly supported, unconfirmed, unknown",
         "[House] RCA answer (rca.txt) is about 800 words or fewer: passes up to 880 words (a final 'skill used' line is not counted)",
-        "[House] Does not convert/normalize the logs into a common format (e.g. parse_logs.py JSONL): HAProxy and IIS share no request ID, so a time-window comparison on the raw files is enough"
+        "[House] Does not convert/normalize the logs into a common format (e.g. parse_logs.ts JSONL): HAProxy and IIS share no request ID, so a time-window comparison on the raw files is enough"
       ]
     },
     {
