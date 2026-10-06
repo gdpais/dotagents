@@ -1,8 +1,18 @@
 flowchart TD
-    IN(["Alert, failure or PR"]) --> Q{"What is needed?"}
+    IN(["Alert, failure, PR or idea"]) --> Q{"What is needed?"}
     Q -- incident in progress --> L["sre-incident-lifecycle"]
     Q -- why did it fail --> R["rca-investigation"]
     Q -- review a change --> CR["defect-first-review"]
+    Q -- build or ship something --> DL["delivery-lifecycle"]
+    DL --> FP["feature-planning"]
+    FP -. ADR needed .-> ARC["engineering:architecture"]
+    DL -. build stage .-> TS["engineering:testing-strategy"]
+    DL -- verify, always --> CR
+    DL -. security signal .-> SEC["security-review (built-in)"]
+    DL -. perf signal .-> PERF["performance-review"]
+    DL -. CI or infra signal .-> CICD["ci-cd-pipeline"]
+    DL -- release and migrations --> DEP
+    DEP -- rollback trigger met --> L
     L --> LR["incident-live-report"]
     L --> R
     R -- evidence snapshot --> LR
@@ -14,5 +24,6 @@ flowchart TD
     R -. code-level fix .-> DBG["engineering:debug"]
     L -. fix needs deploy .-> DEP["engineering:deploy-checklist"]
     PM -. runbook actions .-> DOC["engineering:documentation"]
+    PM -- fixes re-enter --> DL
     IN2(["On demand: COO review"]) --> COO["coo-portfolio-review - standalone"]
     COO -. optional drift lens .-> TD["engineering:tech-debt"]

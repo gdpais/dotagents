@@ -1,0 +1,43 @@
+flowchart TD
+    IN([Idea, ticket, bug or branch]) --> S0{0 Intake - delivery-lifecycle}
+    S0 -- production impact now --> INC[[sre-incident-lifecycle]]
+    INC -- fix needed --> S3
+    S0 -- fast path: small fix, no risk signals --> S3
+    S0 -- idea or ticket --> S1[1 Plan - feature-planning]
+    S0 -- branch exists --> S4
+    S1 --> DOR{Definition of Ready}
+    DOR -- gaps --> Q1[Open questions - human decides]
+    Q1 --> S1
+    DOR -- pass --> DT{"Design trigger? new service, public API, irreversible migration"}
+    DT -- yes --> S2["2 ADR - engineering:architecture"]
+    S2 --> ADR{ADR accepted - human}
+    ADR -- no --> S1
+    ADR -- yes --> S3
+    DT -- no --> S3["3 Build slice - delivery-lifecycle"]
+    S3 --> QG["quality_gate.ts --run all"]
+    QG --> DOD{Definition of Done}
+    DOD -- fail --> S3
+    DOD -- pass, more slices --> S3
+    DOD -- pass --> S4["4 Verify - classify_change.ts"]
+    S4 --> RV[defect-first-review - always]
+    S4 -. security signal .-> SEC["security-review + scan_secrets.ts"]
+    S4 -. perf signal .-> PERF["performance-review + bench_stats.ts"]
+    S4 -. CI or infra signal .-> CI["ci-cd-pipeline + audit_ci.ts"]
+    S4 -. migration signal .-> MIG["engineering:deploy-checklist"]
+    RV --> MG{Merge gate}
+    SEC --> MG
+    PERF --> MG
+    CI --> MG
+    MIG --> MG
+    MG -- P0/P1 or regression --> S3
+    MG -- pass --> MERGE[Merge - human]
+    MERGE --> S5["5 Release - release_plan.ts + engineering:deploy-checklist"]
+    S5 --> RG{"Release gate: rollout, rollback trigger, baselines"}
+    RG -- go - human --> DEPLOY[Tag and deploy - human-authorized]
+    DEPLOY --> S6{"6 Operate: signals vs baseline in watch window"}
+    S6 -- healthy --> S7[7 Learn - retro, tech-debt, docs]
+    S6 -- trigger met --> RB[Rollback per plan]
+    RB --> INC
+    INC --> PM[incident-postmortem]
+    PM --> S7
+    S7 -. on demand .-> COO[coo-portfolio-review]
