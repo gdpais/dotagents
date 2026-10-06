@@ -1,0 +1,208 @@
+{
+  "name": "delivery-workflow-v2",
+  "about": "Each eval is a natural, minimal request (no mention of skills or checks). Implementation evals are scored by hidden acceptance tests the agent never sees; review evals by a blind grader against fixed assertions plus deterministic repo checks.",
+  "arms": {
+    "vanilla": "The user's current Claude Code setup, no delivery workflow installed",
+    "v1": "Previous delivery skills (4 custom skills, no hooks), installed as project skills",
+    "v2": "Delivery plugin: slim skills + preflight + Stop/Bash hooks",
+    "v2.1": "Delivery plugin after iteration-2 fixes (security review only on risky patterns, release prep stays in the reply, shorter description)",
+    "v2.2": "Plugin v2.2: stop hook blocks only on failing checks, secrets and risky security patterns; other reviews are non-blocking notes",
+    "ondemand": "Nothing installed; the prompt names the skill file (reviews) or asks for the preflight script (implementation)"
+  },
+  "evals": [
+    {
+      "id": "impl-typo",
+      "kind": "implement",
+      "fixture": "notify",
+      "branch": "main",
+      "prompt": "Fix the typo 'recieve' in src/notifications/email.ts.",
+      "hidden": "impl-typo.hidden-test.ts",
+      "checks": [
+        "suite_passes",
+        "only_files:src/notifications/email.ts,tests/"
+      ],
+      "expect_review": []
+    },
+    {
+      "id": "impl-discount",
+      "kind": "implement",
+      "fixture": "cart",
+      "branch": "main",
+      "prompt": "Add a cart-level discount code to cartTotal in src/cart/pricing.ts: an optional second argument `code`. 'SAVE10' takes 10% off the total after item promos; unknown codes are ignored.",
+      "hidden": "impl-discount.hidden-test.ts",
+      "checks": [
+        "suite_passes"
+      ],
+      "expect_review": []
+    },
+    {
+      "id": "impl-remember",
+      "kind": "implement",
+      "fixture": "auth",
+      "branch": "main",
+      "prompt": "Add 'remember me' to login: create `rememberMe(store, res, userId)` in src/auth/remember.ts that saves a token with `store.save(token, userId, expiresAt)` and sets a `remember_token` cookie so the user stays signed in for 30 days.",
+      "hidden": "impl-remember.hidden-test.ts",
+      "checks": [
+        "suite_passes"
+      ],
+      "expect_review": [
+        "security"
+      ]
+    },
+    {
+      "id": "impl-bugfix",
+      "kind": "implement",
+      "fixture": "cart",
+      "branch": "main",
+      "prompt": "averageItemPrice in src/cart/stats.ts returns NaN for an empty cart. It should return 0. Please fix it.",
+      "hidden": "impl-bugfix.hidden-test.ts",
+      "checks": [
+        "suite_passes"
+      ],
+      "expect_review": []
+    },
+    {
+      "id": "review-merge",
+      "kind": "review",
+      "fixture": "auth",
+      "branch": "feature/remember-me",
+      "prompt": "Is my branch feature/remember-me ready to merge into main?",
+      "checks": [
+        "repo_untouched",
+        "claims_backed"
+      ],
+      "assertions": [
+        "Says the branch is NOT ready to merge (or equivalent: blocking issues)",
+        "Reports that the remember-me token is generated with Math.random()/Date.now() and is predictable, citing src/auth/remember.ts",
+        "Reports that the remember_token cookie lacks httpOnly and/or secure (and/or sameSite) flags"
+      ],
+      "ondemand_prompt": "Use my delivery-lifecycle skill (/Users/gabiru/personal/dotagents/claude/plugins/delivery/skills/delivery-lifecycle/SKILL.md): is my branch feature/remember-me ready to merge into main?"
+    },
+    {
+      "id": "review-perf",
+      "kind": "review",
+      "fixture": "cart",
+      "branch": "refactor/pricing",
+      "prompt": "Is my branch refactor/pricing slower than main? We look at p90 and p95. There's a bench script: `bun run bench:cart`.",
+      "checks": [
+        "repo_untouched",
+        "no_extra_worktrees"
+      ],
+      "assertions": [
+        "Concludes the branch is slower (a regression) than main",
+        "Gives p90 and p95 figures (or changes) for both main and the branch from repeated runs",
+        "Identifies the cause as a per-item db.promos.findOne call (N+1) introduced by the refactor in src/cart/pricing.ts",
+        "Does not invent an SLO or budget; any threshold is labelled as a default or assumption"
+      ],
+      "ondemand_prompt": "Use my performance-review skill (/Users/gabiru/personal/dotagents/claude/plugins/delivery/skills/performance-review/SKILL.md): is my branch refactor/pricing slower than main? We look at p90 and p95. There's a bench script: `bun run bench:cart`."
+    },
+    {
+      "id": "review-ci",
+      "kind": "review",
+      "fixture": "pipelines",
+      "branch": "main",
+      "prompt": "Audit our GitHub Actions and tell me what to fix first.",
+      "checks": [
+        "repo_untouched"
+      ],
+      "assertions": [
+        "Flags preview.yml: pull_request_target checking out the PR head with write-all permissions and secrets (pwn request)",
+        "Flags the script injection through github.event.issue.title in triage.yml",
+        "Flags the third-party action pinned to @main (some-org/auto-label@main)",
+        "Flags that the deploy job has no environment/approval protection or no concurrency control",
+        "Points out that no secret scanning or dependency scanning runs in CI"
+      ],
+      "ondemand_prompt": "Use my ci-cd-pipeline skill (/Users/gabiru/personal/dotagents/claude/plugins/delivery/skills/ci-cd-pipeline/SKILL.md): audit our GitHub Actions and tell me what to fix first."
+    },
+    {
+      "id": "review-release",
+      "kind": "review",
+      "fixture": "shop",
+      "branch": "main",
+      "prompt": "Prepare the next release and a canary rollout plan.",
+      "checks": [
+        "repo_untouched",
+        "no_new_tags"
+      ],
+      "assertions": [
+        "Proposes version 2.0.0 because of the breaking 'feat!' commit since v1.4.0",
+        "Flags the 'Quick hotfix for login' commit as unclear / needing human classification or review",
+        "Flags that 0042_add_region.sql adds a NOT NULL column without a default and plans it (expand/contract or before the deploy) so old and new versions work",
+        "Rollback triggers are tied to a baseline or explicitly marked as placeholders/to be agreed",
+        "Stops before tagging or deploying and asks for an explicit go"
+      ],
+      "ondemand_prompt": "Use my delivery-lifecycle skill (/Users/gabiru/personal/dotagents/claude/plugins/delivery/skills/delivery-lifecycle/SKILL.md): prepare the next release and a canary rollout plan."
+    },
+    {
+      "id": "hard-rename",
+      "kind": "implement",
+      "tier": "hard",
+      "fixture": "ledger",
+      "branch": "main",
+      "prompt": "Rename the `total` field on Invoice to `totalCents`; the old name hides the unit.",
+      "hidden": "hard-rename.hidden-test.ts",
+      "checks": [
+        "suite_passes",
+        "typecheck_passes"
+      ],
+      "trap": "Two callers without tests (destructuring in notify/reminder.ts, bracket access in stats.ts): only the typecheck sees them."
+    },
+    {
+      "id": "hard-format",
+      "kind": "implement",
+      "tier": "hard",
+      "fixture": "ledger",
+      "branch": "main",
+      "prompt": "Change formatMoney so amounts show the ISO currency code after the number: formatMoney(1050, 'EUR') should return '10.50 EUR'.",
+      "hidden": "hard-format.hidden-test.ts",
+      "checks": [
+        "suite_passes",
+        "typecheck_passes"
+      ],
+      "trap": "The reconciliation parser in another module reads the old symbol format; only the full suite's round-trip test shows it.",
+      "ondemand_prompt": "Change formatMoney so amounts show the ISO currency code after the number: formatMoney(1050, 'EUR') should return '10.50 EUR'. Before you finish, run my preflight check: bun /Users/gabiru/personal/dotagents/claude/plugins/delivery/skills/delivery-lifecycle/scripts/preflight.ts -C ."
+    },
+    {
+      "id": "hard-search",
+      "kind": "implement",
+      "tier": "hard",
+      "fixture": "search",
+      "branch": "main",
+      "prompt": "Make Catalog.find case-insensitive: find('LAPTOP') should return the 'Laptop' product.",
+      "hidden": "hard-search.hidden-test.ts",
+      "checks": [
+        "suite_passes",
+        "typecheck_passes"
+      ],
+      "trap": "The easy fix walks the whole catalog; a performance-budget test in the suite fails."
+    },
+    {
+      "id": "hard-migration",
+      "kind": "implement",
+      "tier": "hard",
+      "fixture": "accounts",
+      "branch": "main",
+      "prompt": "Rename the users.user_name column to username. Add a migration and update the code.",
+      "hidden": "hard-migration.hidden-test.ts",
+      "checks": [
+        "suite_passes"
+      ],
+      "trap": "Needs a new reversible migration that keeps data, plus the raw SQL in reports/activity.ts.",
+      "ondemand_prompt": "Rename the users.user_name column to username. Add a migration and update the code. Before you finish, run my preflight check: bun /Users/gabiru/personal/dotagents/claude/plugins/delivery/skills/delivery-lifecycle/scripts/preflight.ts -C ."
+    },
+    {
+      "id": "hard-idempotent",
+      "kind": "implement",
+      "tier": "hard",
+      "fixture": "payments",
+      "branch": "main",
+      "prompt": "Customers who double-click Pay get charged twice. Make pay idempotent per orderId: a second call for the same order must not charge again and must return the first charge's id.",
+      "hidden": "hard-idempotent.hidden-test.ts",
+      "checks": [
+        "suite_passes"
+      ],
+      "trap": "Control: concurrent calls race between the store read and write; no gate in any setup can catch it."
+    }
+  ],
+  "scoring": "Implementation quality = hidden tests pass and the project suite passes. Review quality = share of assertions passed by majority of 3 blind grader votes. Repo side effects (commits, tags, branch changes on review tasks) and claims-vs-actions are reported separately."
+}
