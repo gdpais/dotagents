@@ -42,6 +42,10 @@ test("bash guard classifies commits and outward actions", () => {
   expect(classifyCommand("git -C repo push origin main").irreversible).toBe("git push");
   expect(classifyCommand("git tag -a v2.0.0 -m v2").irreversible).toBe("git tag");
   expect(classifyCommand("git tag -l").irreversible).toBeNull();
+  expect(classifyCommand("git tag v2.0.0").irreversible).toBe("git tag");
+  expect(classifyCommand("git tag -am 'v2' v2.0.0").irreversible).toBe("git tag");
+  expect(classifyCommand("git -C repo tag -s v2.0.0 HEAD").irreversible).toBe("git tag");
+  expect(classifyCommand("echo; git tag v2.0.0 && git log").irreversible).toBe("git tag");
   expect(classifyCommand("npm publish --access public").irreversible).toBe("package publish");
   expect(classifyCommand("kubectl apply -f k8s/").irreversible).toBe("cluster change");
   expect(classifyCommand("git status && bun test").irreversible).toBeNull();
@@ -74,6 +78,24 @@ test("preflight: docs-only change runs no quality commands and passes", async ()
   expect(p.ok).toBe(true);
   expect(p.quality).toEqual([]);
   expect(render(p)).toContain("quality  not run");
+});
+
+test("bash guard: listing tags is not creating one", () => {
+  for (const cmd of ["git tag", "git tag --sort=-creatordate | head", "git tag --sort -v:refname", "git tag -n5", "git tag --contains HEAD",
+    "git tag --merged main", "git tag --points-at HEAD", "git tag -l 'v1.*'", "git tag --format='%(refname:short)'", "git tag -d tmp"]) {
+    expect([cmd, classifyCommand(cmd).irreversible]).toEqual([cmd, null]);
+  }
+});
+
+test("preflight: a test runner that finds no test files is a note, not a failure", async () => {
+  sh("rm", "-q", "tests/a.test.ts"); sh("commit", "-qm", "no tests");
+  put("package.json", JSON.stringify({ name: "x", version: "2.0.0", packageManager: "bun@1.4.2", scripts: { test: "bun test" } }));
+  const p = await preflight(dir);
+  if (typeof p === "string") throw new Error(p);
+  expect(p.ok).toBe(true);
+  expect(p.quality[0]).toMatchObject({ kind: "test", passed: true, no_tests: true });
+  expect(p.advisories.join("\n")).toContain("found no test files");
+  expect(render(p)).toContain("no test files");
 });
 
 test("preflight: failing test and a secret block; auth change asks for security review", async () => {

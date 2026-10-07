@@ -9,9 +9,25 @@
  */
 import { scanPatch } from "../skills/delivery-lifecycle/scripts/scan_secrets";
 
+/**
+ * `git tag` creates a tag only with a creation flag or a tag name; listing (no name,
+ * -l/-n/--contains/--merged/--points-at, or --sort/--format with a value) and -d don't.
+ */
+export function createsTag(cmd: string): boolean {
+  for (const m of cmd.matchAll(/\bgit\s+(?:-C\s+\S+\s+)?tag\b([^;&|\n]*)/g)) {
+    const toks = m[1].trim().split(/\s+/).filter(Boolean);
+    if (toks.some((t) => /^(-l|--list|-n\d*|--contains|--no-contains|--merged|--no-merged|--points-at|-d|--delete|-v|--verify)(=.*)?$/.test(t))) continue;
+    if (toks.some((t) => /^(-[asuFfm]+|--annotate|--sign|--local-user|--file|--force|--message)(=.*)?$/.test(t))) return true;
+    for (let i = 0; i < toks.length; i++) {
+      if (/^(--sort|--format|--column)$/.test(toks[i])) { i++; continue; }
+      if (!toks[i].startsWith("-")) return true;
+    }
+  }
+  return false;
+}
+
 export const IRREVERSIBLE: [RegExp, string][] = [
   [/\bgit\s+(?:-C\s+\S+\s+)?push\b/, "git push"],
-  [/\bgit\s+(?:-C\s+\S+\s+)?tag\s+(?!-l\b|--list\b|-d\b)\S/, "git tag"],
   [/\bgh\s+pr\s+merge\b/, "gh pr merge"],
   [/\bgh\s+release\s+create\b/, "gh release create"],
   [/\bgh\s+workflow\s+run\b/, "gh workflow run"],
@@ -24,7 +40,7 @@ export const IRREVERSIBLE: [RegExp, string][] = [
 export function classifyCommand(cmd: string): { commit: boolean; irreversible: string | null } {
   return {
     commit: /\bgit\s+(?:-C\s+\S+\s+)?commit\b/.test(cmd),
-    irreversible: IRREVERSIBLE.find(([re]) => re.test(cmd))?.[1] ?? null,
+    irreversible: IRREVERSIBLE.find(([re]) => re.test(cmd))?.[1] ?? (createsTag(cmd) ? "git tag" : null),
   };
 }
 

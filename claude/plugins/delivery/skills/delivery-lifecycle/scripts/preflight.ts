@@ -31,7 +31,7 @@ export interface Preflight {
   target: Record<string, string>;
   size: string;
   totals: Classified["totals"];
-  quality: { kind: string; command: string; passed: boolean; exit_code: number; timed_out: boolean; duration_s: number; output_tail: string }[];
+  quality: { kind: string; command: string; passed: boolean; exit_code: number; timed_out: boolean; no_tests: boolean; duration_s: number; output_tail: string }[];
   not_detected: string[];
   secrets: Finding[];
   ci: { id: string; level: string; file: string; job?: string; message: string }[];
@@ -118,6 +118,7 @@ export async function preflight(cwd: string, opts: { base?: string; range?: stri
   const advisories: string[] = [];
   if (c.gates.tests.level === "required") advisories.push(`source changed with no test change: ${c.gates.tests.signals.slice(0, 3).map((s) => s.file).join(", ")}`);
   if (c.gates.docs.level !== "skip") advisories.push("public surface changed with no docs change");
+  for (const q of quality.filter((x) => x.no_tests)) advisories.push(`\`${q.command}\` found no test files; nothing was tested`);
 
   const blocking = [
     ...quality.filter((q) => !q.passed).map((q) => `${q.kind} failed: \`${q.command}\` exit ${q.exit_code}${q.timed_out ? " (timed out)" : ""}`),
@@ -126,7 +127,7 @@ export async function preflight(cwd: string, opts: { base?: string; range?: stri
   ];
   return {
     ok: blocking.length === 0, target: c.target, size: c.size, totals: c.totals,
-    quality: quality.map(({ kind, command, passed, exit_code, timed_out, duration_s, output_tail }) => ({ kind, command, passed, exit_code, timed_out, duration_s, output_tail })),
+    quality: quality.map(({ kind, command, passed, exit_code, timed_out, no_tests, duration_s, output_tail }) => ({ kind, command, passed, exit_code, timed_out, no_tests, duration_s, output_tail })),
     not_detected: notDetected, secrets, ci, reviews, advisories, blocking,
   };
 }
@@ -134,7 +135,7 @@ export async function preflight(cwd: string, opts: { base?: string; range?: stri
 export function render(p: Preflight): string {
   const t = p.totals;
   const lines = [`preflight: ${p.ok ? "PASS" : `FAIL (${p.blocking.length} blocking)`} · size ${p.size} · ${t.reviewed_files} file(s) +${t.added}/-${t.deleted}`];
-  for (const q of p.quality) lines.push(`${q.passed ? "✓" : "✗"} ${q.kind.padEnd(9)} ${q.command} — exit ${q.exit_code}, ${q.duration_s}s`);
+  for (const q of p.quality) lines.push(`${q.no_tests ? "·" : q.passed ? "✓" : "✗"} ${q.kind.padEnd(9)} ${q.command} — ${q.no_tests ? "no test files" : `exit ${q.exit_code}`}, ${q.duration_s}s`);
   if (!p.quality.length) lines.push("· quality  not run (no code change)");
   if (p.not_detected.length) lines.push(`· not detected: ${p.not_detected.join(", ")}`);
   lines.push(p.secrets.length ? `✗ secrets  ${p.secrets.length} finding(s): ${p.secrets.slice(0, 3).map((s) => `${s.rule} ${s.file}:${s.line} ${s.masked}`).join("; ")}` : "✓ secrets  none in the diff");

@@ -146,6 +146,12 @@ export function detect(dir: string) {
   };
 }
 
+/** bun, jest, vitest, mocha and pytest (exit 5) messages for "no test files found". */
+export function noTestFiles(output: string, code: number | null): boolean {
+  return /\b0 test files matching\b|No tests found, exiting with code|No test files found|Error: No test files found/.test(output)
+    || (code === 5 && /\bno tests ran\b/i.test(output));
+}
+
 export async function runCommand(cmd: Command, dir: string, timeoutS: number, tail: number) {
   const started = performance.now();
   // Own process group, so a timeout kills the whole tree: a surviving child (make → sleep)
@@ -159,8 +165,10 @@ export async function runCommand(cmd: Command, dir: string, timeoutS: number, ta
   const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
   clearTimeout(timer);
   const lines = (out + (err ? "\n" + err : "")).trimEnd().split("\n");
+  // A test runner that found no test files is a missing-tests note, not a failing test.
+  const noTests = cmd.kind === "test" && code !== 0 && !timedOut && noTestFiles(out + "\n" + err, code);
   return {
-    ...cmd, exit_code: code, passed: code === 0 && !timedOut, timed_out: timedOut,
+    ...cmd, exit_code: code, passed: (code === 0 || noTests) && !timedOut, timed_out: timedOut, no_tests: noTests,
     duration_s: Math.round((performance.now() - started) / 100) / 10,
     output_tail: lines.slice(-tail).join("\n"),
   };

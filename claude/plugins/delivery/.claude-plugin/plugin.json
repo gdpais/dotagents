@@ -1,6 +1,6 @@
 {
   "name": "delivery",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "description": "Software delivery workflow: automatic quality, secrets and review gates via hooks, plus skills for planning, merge readiness, performance (p90/p95) and CI/CD audits. Uses Anthropic skills (security-review, engineering:*) where they exist.",
   "author": {
     "name": "gabs"
