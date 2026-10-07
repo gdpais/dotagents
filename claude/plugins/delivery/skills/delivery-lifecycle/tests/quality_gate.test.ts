@@ -87,12 +87,15 @@ test("--keep-going runs everything; passing gate exits 0", () => {
   expect(out.passed).toBe(true);
 });
 
-test("--timeout marks a hung command as failed", () => {
-  put("Makefile", "test:\n\t@sleep 5\n");
+test("--timeout marks a hung command as failed and kills its children", () => {
+  // `sleep` runs as a grandchild that inherits the output pipes; killing only `sh` would leave it running.
+  put("Makefile", "test:\n\t@sleep 8; echo done\n");
+  const started = performance.now();
   const [code, out] = cli("--run", "test", "--timeout", "1");
   expect(code).toBe(1);
   expect(out.results[0].timed_out).toBe(true);
-});
+  expect(performance.now() - started).toBeLessThan(4000);
+}, 10_000);
 
 test("unknown kind is a usage error", () => {
   const p = Bun.spawnSync([process.execPath, SCRIPT, "-C", dir, "--run", "deploy"]);

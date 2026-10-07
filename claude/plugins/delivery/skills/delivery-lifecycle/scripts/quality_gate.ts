@@ -148,9 +148,14 @@ export function detect(dir: string) {
 
 export async function runCommand(cmd: Command, dir: string, timeoutS: number, tail: number) {
   const started = performance.now();
-  const proc = Bun.spawn(["sh", "-c", cmd.command], { cwd: dir, stdout: "pipe", stderr: "pipe", stdin: "ignore" });
+  // Own process group, so a timeout kills the whole tree: a surviving child (make → sleep)
+  // would hold the output pipes open and the wait below would outlast the timeout.
+  const proc = Bun.spawn(["sh", "-c", cmd.command], { cwd: dir, stdout: "pipe", stderr: "pipe", stdin: "ignore", detached: true });
   let timedOut = false;
-  const timer = setTimeout(() => { timedOut = true; proc.kill(); }, timeoutS * 1000);
+  const timer = setTimeout(() => {
+    timedOut = true;
+    try { process.kill(-proc.pid, "SIGKILL"); } catch { proc.kill("SIGKILL"); }
+  }, timeoutS * 1000);
   const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
   clearTimeout(timer);
   const lines = (out + (err ? "\n" + err : "")).trimEnd().split("\n");
