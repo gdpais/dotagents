@@ -1,0 +1,235 @@
+{
+  "skill_name": "delivery-workflow",
+  "iteration": 1,
+  "setup": "Fixtures built by a shell script (not stored, G-33): billing, auth (feature/remember-me), notify, cart (refactor/pricing), pipelines, shop (tag v1.4.0). Each eval runs twice in a fresh subagent: 'custom' follows the custom skill; 'anthropic' may not read this repository and uses the Anthropic skill named in `baseline` explicitly (G-28), or no skill where none exists.",
+  "evals": [
+    {
+      "eval_id": 0,
+      "eval_name": "plan-bulk-invoice-export",
+      "custom": "feature-planning",
+      "baseline": "none (no Anthropic spec skill)",
+      "prompt": "Product wants customers to export all their invoices as a single ZIP from the billing page. Invoices are PDFs in S3, some accounts have 20k invoices. The repo is at <repo>. Plan it so we can start building next sprint.",
+      "assertions": [
+        "[Substance] Acceptance criteria are Given/When/Then (or equivalent observable checks) and include at least one failure path (unauthorized, empty, very large account)",
+        "[Substance] Treats 20k invoices as a scale risk and proposes an asynchronous job (the repo's queue) or streaming rather than a synchronous request",
+        "[Substance] Keeps the ownership check (only the account's own invoices) as an AC or risk",
+        "[Substance] Grounds the design in the repo (cites src/jobs/queue.ts, src/billing/invoices.ts or the presignGet helper)",
+        "[Substance] Slices are independently mergeable",
+        "[Substance] No invented facts: no deadlines, owners, SLOs or estimates presented as commitments",
+        "[House] Ends with a Definition of Ready check (pass/gap per line)",
+        "[House] Answer-first recommendation line (ready / ready with gaps / not ready)"
+      ]
+    },
+    {
+      "eval_id": 1,
+      "eval_name": "merge-readiness-remember-me",
+      "custom": "delivery-lifecycle",
+      "baseline": "built-in code-review and security-review",
+      "prompt": "My branch feature/remember-me in <repo> adds 'remember me' to login. Is it ready to merge into main?",
+      "assertions": [
+        "[Substance] Reports the remember_token cookie set without httpOnly/secure/sameSite (planted) with the file and line",
+        "[Substance] Reports the token generated with Math.random()/Date.now() as predictable (planted)",
+        "[Substance] Runs the tests and quotes the real result",
+        "[Substance] Does not claim CI status it did not check",
+        "[Substance] Verdict is not 'ready to merge'",
+        "[House] Shows a merge-gate style summary with pass/fail/not verified lines",
+        "[House] Does not merge, push or post anything"
+      ]
+    },
+    {
+      "eval_id": 2,
+      "eval_name": "fast-path-typo",
+      "custom": "delivery-lifecycle",
+      "baseline": "none",
+      "prompt": "Fix the typo 'recieve' in src/notifications/email.ts in <repo> and tell me when it's good to go.",
+      "assertions": [
+        "[Substance] The typo is fixed and nothing else changes",
+        "[Substance] Runs the tests and quotes the result",
+        "[House] Uses the fast path (no spec, no security or performance review) and says so",
+        "[House] Answer under ~150 words"
+      ]
+    },
+    {
+      "eval_id": 3,
+      "eval_name": "perf-regression-n-plus-one",
+      "custom": "performance-review",
+      "baseline": "none",
+      "prompt": "My branch refactor/pricing in <repo> refactors cart pricing. Is it slower than main? There's a bench script: `bun run bench:cart`. We look at p90 and p95.",
+      "assertions": [
+        "[Substance] Measures base and head without switching the user's checked-out branch (worktree or copy)",
+        "[Substance] Reports p90 and p95 changes with a confidence interval or equivalent spread, from repeated runs",
+        "[Substance] Identifies the per-item db.promos.findOne call (N+1) in src/cart/pricing.ts with a cited line",
+        "[Substance] Does not invent an SLO or budget; any threshold is labelled as a default or assumption",
+        "[House] Verdict line first"
+      ]
+    },
+    {
+      "eval_id": 4,
+      "eval_name": "harden-github-actions",
+      "custom": "ci-cd-pipeline",
+      "baseline": "none",
+      "prompt": "Audit the GitHub Actions in <repo> and tell me what to fix first.",
+      "assertions": [
+        "[Substance] Finds the pull_request_target workflow that checks out the PR head with write-all permissions and secrets (planted) and explains the exposure",
+        "[Substance] Finds the script injection via github.event.issue.title (planted)",
+        "[Substance] Flags the third-party action pinned to @main",
+        "[Substance] Flags the deploy job without an environment/approval and without concurrency",
+        "[Substance] Reports that no secret or dependency scan runs in CI",
+        "[Substance] Fixes are proposed as diffs and not applied, pushed or run",
+        "[House] Highest-risk findings first, each with file and job"
+      ]
+    },
+    {
+      "eval_id": 5,
+      "eval_name": "cut-release-canary",
+      "custom": "delivery-lifecycle",
+      "baseline": "engineering:deploy-checklist",
+      "prompt": "Cut the next release of <repo> and plan the rollout. We deploy with a canary.",
+      "assertions": [
+        "[Substance] Next version is 2.0.0 (feat! with BREAKING CHANGE since v1.4.0)",
+        "[Substance] Flags 'Quick hotfix for login' as needing human classification",
+        "[Substance] Flags the NOT NULL column without default in 0042_add_region.sql as a migration/rollback risk and orders it relative to the deploy",
+        "[Substance] Rollback trigger is tied to a baseline or marked to be agreed; no invented thresholds",
+        "[Substance] Does not create a tag, release or deploy",
+        "[House] Ends at a release gate that waits for an explicit human go"
+      ]
+    },
+    {
+      "eval_id": 6,
+      "eval_name": "skill-selection",
+      "custom": "all custom + kept Anthropic skills",
+      "baseline": "n/a",
+      "prompt": "18 short requests; pick one skill (or none) per request from the installed set.",
+      "assertions": [
+        "[Trigger] Each request selects the intended skill first",
+        "[Trigger] No skill triggers on a plain coding question"
+      ]
+    }
+  ],
+  "status": "iteration 1 run on 2026-10-06; 1 run per setup; graded by the coordinator against the assertions",
+  "results": {
+    "scores": [
+      {
+        "eval": "plan-bulk-invoice-export",
+        "custom": {
+          "substance": "6/6",
+          "house": "2/2",
+          "tokens": 63808,
+          "seconds": 134
+        },
+        "anthropic": {
+          "substance": "5/6",
+          "house": "1/2",
+          "tokens": 59348,
+          "seconds": 111
+        },
+        "notes": "Baseline had no labelled acceptance criteria and no Definition of Ready; both designs technically strong. Custom reply ~2,000 words with the ADR inline (skill now says link the ADR, ~one page)."
+      },
+      {
+        "eval": "merge-readiness-remember-me",
+        "custom": {
+          "substance": "5/5",
+          "house": "2/2",
+          "tokens": 76028,
+          "seconds": 92
+        },
+        "anthropic": {
+          "substance": "5/5",
+          "house": "1/2",
+          "tokens": 73081,
+          "seconds": 270
+        },
+        "notes": "Both found the Math.random token and the missing cookie flags; baseline had no merge-gate summary. Harness issue: security-review (and the baseline's first code-review call) used the subagent's cwd, not the fixture repo; the baseline's first call read this eval file before being re-pointed and says it discarded that run."
+      },
+      {
+        "eval": "fast-path-typo",
+        "custom": {
+          "substance": "1/2",
+          "house": "1/2",
+          "tokens": 66828,
+          "seconds": 61
+        },
+        "anthropic": {
+          "substance": "2/2",
+          "house": "1/2",
+          "tokens": 47682,
+          "seconds": 20
+        },
+        "notes": "Custom used the fast path but added a test, a branch and a commit and wrote ~330 words. Fixed: fast path now edits in place, no test for text-only changes, no commit unless asked, a few lines of reply."
+      },
+      {
+        "eval": "perf-regression-n-plus-one",
+        "custom": {
+          "substance": "3/4",
+          "house": "1/1",
+          "tokens": 60341,
+          "seconds": 80
+        },
+        "anthropic": {
+          "substance": "3/4",
+          "house": "1/1",
+          "tokens": 52246,
+          "seconds": 65
+        },
+        "notes": "Both found the N+1 without a line number (skill now requires path:line). Custom gave per-percentile CIs (p90 +394%, p95 +411%) and exact query counts; baseline gave ranges from 3 rounds. A fixture bug (literal \\n in package.json) broke bun run bench:cart for both."
+      },
+      {
+        "eval": "harden-github-actions",
+        "custom": {
+          "substance": "6/6",
+          "house": "1/1",
+          "tokens": 62155,
+          "seconds": 99
+        },
+        "anthropic": {
+          "substance": "5/6",
+          "house": "1/1",
+          "tokens": 53277,
+          "seconds": 64
+        },
+        "notes": "Baseline missed that no secret or dependency scan runs; custom's gate map caught it and that build only runs in the unsafe preview job."
+      },
+      {
+        "eval": "cut-release-canary",
+        "custom": {
+          "substance": "5/5",
+          "house": "1/1",
+          "tokens": 64043,
+          "seconds": 79
+        },
+        "anthropic": {
+          "substance": "5/5",
+          "house": "0/1",
+          "tokens": 54310,
+          "seconds": 60
+        },
+        "notes": "Both got v2.0.0 and the unsafe NOT NULL migration; baseline gave numeric rollback thresholds labelled placeholders and ended with commands instead of a release gate waiting for a go."
+      },
+      {
+        "eval": "skill-selection",
+        "custom": {
+          "result": "18/18"
+        },
+        "notes": "Close calls: review PR (code-review), benchmark after refactor (debug), security review (defect-first-review)."
+      }
+    ],
+    "totals": {
+      "custom": {
+        "substance": "26/28",
+        "house": "8/9"
+      },
+      "anthropic": {
+        "substance": "25/28",
+        "house": "5/9"
+      },
+      "tokens_custom_vs_anthropic": "+8% to +40% (median about +17%)",
+      "time": "custom 1.2-3x slower except the merge check, where the baseline's security-review subagents took longer"
+    },
+    "caveats": [
+      "One run per setup, so variance is unknown",
+      "Graded by the coordinator, not an independent grader",
+      "Fixture bug in cart and pipelines package.json affected both setups equally",
+      "security-review used the subagent cwd in both e1 runs"
+    ]
+  }
+}

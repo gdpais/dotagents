@@ -1,0 +1,39 @@
+{
+  "description": "Delivery workflow gates: run preflight (tests, lint, typecheck, secrets, review routing) when Claude finishes a turn that edited files; scan commits for secrets; ask before pushes, tags, merges, releases and deploys. Skipped, with one notice at session start, when bun is missing.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/run.sh\" --check",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/run.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/stop_gate.ts\"",
+            "timeout": 900
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/run.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/bash_guard.ts\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "name": "dotagents",
+  "private": true,
+  "packageManager": "bun@1.4.2",
+  "scripts": {
+    "lint": "bun claude/tools/validate_skills.ts",
+    "test": "bun test claude/"
+  }
+}

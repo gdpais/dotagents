@@ -1,0 +1,14 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "dotagents",
+  "description": "gabs's Claude Code plugins.",
+  "owner": { "name": "gabs" },
+  "plugins": [
+    {
+      "name": "delivery",
+      "description": "Software delivery workflow with automatic quality, secrets and review gates (hooks) and skills for planning, merge readiness, performance and CI/CD.",
+      "source": "./claude/plugins/delivery",
+      "category": "development"
+    }
+  ]
+}
