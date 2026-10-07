@@ -92,7 +92,7 @@ test("preflight: a test runner that finds no test files is a note, not a failure
   put("package.json", JSON.stringify({ name: "x", version: "2.0.0", packageManager: "bun@1.4.2", scripts: { test: "bun test" } }));
   const p = await preflight(dir);
   if (typeof p === "string") throw new Error(p);
-  expect(p.ok).toBe(true);
+  expect({ blocking: p.blocking, tail: p.quality[0]?.output_tail }).toEqual({ blocking: [], tail: expect.any(String) });
   expect(p.quality[0]).toMatchObject({ kind: "test", passed: true, no_tests: true });
   expect(p.advisories.join("\n")).toContain("found no test files");
   expect(render(p)).toContain("no test files");
