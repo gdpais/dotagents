@@ -106,6 +106,7 @@ test("noTestFiles: runners' no-tests messages, not real failures", async () => {
   const { noTestFiles } = await import("../scripts/quality_gate");
   expect(noTestFiles('error: 0 test files matching **{.test,.spec}.{js,ts} in --cwd="/x"', 1)).toBe(true);
   expect(noTestFiles("No tests found, exiting with code 1", 1)).toBe(true);
+  expect(noTestFiles('bun test v1.4.2\nNo tests found!\nTests need ".test", "_test_", ".spec" or "_spec_" in the filename', 1)).toBe(true);
   expect(noTestFiles("No test files found, exiting with code 1", 1)).toBe(true);
   expect(noTestFiles("collected 0 items\n=== no tests ran in 0.01s ===", 5)).toBe(true);
   expect(noTestFiles("1 failed, 3 passed", 1)).toBe(false);

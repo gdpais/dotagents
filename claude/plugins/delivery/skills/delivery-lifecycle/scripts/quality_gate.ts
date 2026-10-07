@@ -148,7 +148,7 @@ export function detect(dir: string) {
 
 /** bun, jest, vitest, mocha and pytest (exit 5) messages for "no test files found". */
 export function noTestFiles(output: string, code: number | null): boolean {
-  return /\b0 test files matching\b|No tests found, exiting with code|No test files found|Error: No test files found/.test(output)
+  return /\b0 test files matching\b|\bNo tests found\b|\bNo test files found\b/.test(output)
     || (code === 5 && /\bno tests ran\b/i.test(output));
 }
 
