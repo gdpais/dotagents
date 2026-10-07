@@ -77,3 +77,38 @@ Five harder tasks, each built so the obvious fix falls into a trap that only a p
 - Break-even: installed costs ~$0.014 extra on each task that doesn't use a skill; on-demand costs ~$0.089 extra on each task that does. Installing is cheaper once more than about 1 in 7 tasks needs one of these skills.
 - Time: v2.2 adds +1–2 s per implementation task on these fixtures (n.s.), but the stop gate runs the project's real test suite after every editing turn, so in a repo with a slow suite the time cost is that suite's duration per turn.
 
+
+# Iteration 4: cheaper models (2026-10-07)
+
+Question: does the plugin bring a cheaper model up to Opus-alone quality? 260 sessions: Sonnet 5.5 and Haiku 4.5, each with no workflow and with v2.2, on all 13 evals × 5 repetitions. Then 10 more with v2.3 on release preparation, after fixing the two false alarms below. Same scoring and grading as iterations 2–3 (Sonnet grader, 3 votes). Cost: Sonnet $33.59 + $7.99 grading, Haiku $10.92 + $7.92 grading, about $60 in total. A first attempt lost 47 runs when the laptop slept and the harness timer killed them; those were discarded and re-run under `caffeinate`.
+
+| Model | Setup | Implementation tasks passed (9 × 5) | Review quality (4 tasks) | Cost per task, original 8 tasks |
+|---|---|---|---|---|
+| Opus 5.5 (iterations 2–3) | no workflow | 45/45 | 86% | $0.236 |
+| Opus 5.5 (iterations 2–3) | plugin v2.1/v2.2 | 45/45 | 99% | $0.254 |
+| Sonnet 5.5 | no workflow | 44/45 | 95% | $0.236 |
+| Sonnet 5.5 | plugin v2.2 | 45/45 | 77% | $0.231 |
+| Sonnet 5.5 | plugin v2.3 (release re-run) | – | 95% (release 28% → 100%) | – |
+| Haiku 4.5 | no workflow | 34/45 | 42% | $0.075 |
+| Haiku 4.5 | plugin v2.2 | 38/45 | 54% | $0.073 |
+
+Haiku, v2.2 vs no workflow across all 13 evals: **+10 pts [+3, +17]**, cost +$0.00 [−0.01, +0.01]. Sonnet, v2.2 vs no workflow: −4 pts [−7, 0], all of it from release preparation (fixed in v2.3).
+
+## What the data says
+
+1. **No, the plugin doesn't close the gap to Opus.** Haiku with the plugin passes 38/45 implementation tasks and scores 54% on reviews. Opus alone gets 45/45 and 86%. Haiku is about 3× cheaper per task, but the remaining quality gap is far larger than what the gates recover.
+2. **Sonnet alone matches Opus alone at the same cost on these tasks.** Both cost $0.236 per task on the original 8. Sonnet passed 44/45 implementation tasks and scored 95% on reviews (the grader is also Sonnet, so treat the review number with care). For this workload, switching to Sonnet saves nothing.
+3. **On cheaper models the skills don't trigger, so only the hooks do anything.** A delivery skill or script was used in 3 of 65 Sonnet runs (all on the p90/p95 question) and 0 of 65 Haiku runs. On Opus, the review gains came from the skills. This is why both models missed the absent secret and dependency scanning in the CI audit with or without the plugin: the CI audit skill never ran.
+4. **The first real catches by the Stop gate.** On `hard-format`, Haiku alone passed 1/5. With the plugin, the gate fed back the failing round-trip test in 4/5 runs and Haiku fixed it every time: 5/5. On `hard-rename` the gate fed back the type errors in 3/5 runs, but Haiku didn't fix them (3/5 either way). `hard-idempotent` (a race no gate can see) was 0/5 in both setups, as designed.
+5. **The Bash guard caught a real release slip.** In release prep, Haiku tried to commit a plan and create the `v2.0.0` tag without anyone saying go; the guard stopped it. Without the plugin, Sonnet changed the repo in 5/5 release runs (changelog, version bump). It still did in 4/5 with the plugin, because the release skill that says "stay in the reply" never triggered.
+
+## v2.3 changes (false alarms found here)
+
+- **"No test files" no longer counts as a failed test.** Sonnet bumped `package.json` during release prep. The fixture has a `test` script but no tests, and `bun test` exits 1 in that case, so the Stop gate blocked twice and Sonnet's reply became about the gate instead of the release (release quality 28%). Messages from bun, jest, vitest and mocha saying no test files were found, and pytest's exit code 5, are now a note. Re-run: 100%, no false blocks.
+- **Listing tags is no longer treated as creating one.** `git tag --sort=-creatordate` asked for approval, which a headless session denies, in 4 runs. Only a tag name or a creation flag (`-a`, `-s`, `-m`, `-f`…) asks now.
+- Unrelated, found by CI on Linux: on a timeout, `quality_gate` killed only the top-level shell, so a surviving child process kept the gate waiting past `--timeout`. It now kills the whole process group.
+
+## Next
+
+- **Make skills trigger on any model,** for example with a `UserPromptSubmit` hook that names the matching skill when the prompt is a release, CI audit, merge review or performance question. Then re-run the review tasks on Sonnet and Haiku. Expect the CI-audit and release gains seen on Opus if triggering is the bottleneck.
+- Until then, Opus with the plugin stays the default. On cheaper models the plugin is a free safety net (hooks only), not a quality upgrade.
