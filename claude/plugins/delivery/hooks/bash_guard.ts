@@ -42,7 +42,36 @@ export const IRREVERSIBLE: [RegExp, string][] = [
   [/\bdocker\s+push\b/, "image push"],
 ];
 
-export function classifyCommand(cmd: string): { commit: boolean; irreversible: string | null } {
+/**
+ * Heredoc bodies removed: `git commit -F - <<'EOF' ... EOF` is a message, not commands. Kept when
+ * the heredoc feeds a shell (`sh <<EOF`), whose body does run.
+ */
+export function withoutHeredocs(cmd: string): string {
+  const lines = cmd.split("\n"), out: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    out.push(lines[i]);
+    const m = /<<(-?)\s*(['"]?)([A-Za-z_][\w-]*)\2/.exec(lines[i]);
+    if (!m || /\b(?:ba|z|da)?sh\b|\beval\b/.test(lines[i])) continue;
+    const end = lines.findIndex((l, j) => j > i && (m[1] ? l.trim() : l) === m[3]);
+    if (end < 0) break; // unterminated: the rest is body
+    i = end;
+  }
+  return out.join("\n");
+}
+
+/**
+ * The text that runs as commands: heredoc bodies and quoted arguments blanked, so
+ * `grep 'helm upgrade'` or a commit message mentioning `git push` isn't the command itself.
+ * Quotes stay when a shell or eval would run them (`sh -c "git push"`).
+ */
+export function executableText(cmd: string): string {
+  const s = withoutHeredocs(cmd);
+  if (/\b(?:ba|z|da)?sh\s+-\w*c\b|\beval\b|\bxargs\b/.test(s)) return s;
+  return s.replace(/'[^']*'/g, "''").replace(/"(?:[^"\\]|\\.)*"/g, '""');
+}
+
+export function classifyCommand(raw: string): { commit: boolean; irreversible: string | null } {
+  const cmd = executableText(raw);
   return {
     commit: /\bgit\s+(?:-C\s+\S+\s+)?commit\b/.test(cmd),
     irreversible: IRREVERSIBLE.find(([re]) => re.test(cmd))?.[1] ?? (createsTag(cmd) ? "git tag" : null),
@@ -62,7 +91,7 @@ const run = (cmd: string[], cwd: string) => {
  */
 export function outsidePolicy(cmd: string, policy: Autonomy, cwd: string, kubeContext: () => string | null = () => null): string | null {
   let here = cwd;
-  for (const seg of segments(cmd)) {
+  for (const seg of segments(withoutHeredocs(cmd))) {
     // `cd .claude/worktrees/x && git push`: later segments run in that directory.
     const cd = /^cd\s+(?:"([^"]+)"|'([^']+)'|(\S+))\s*$/.exec(seg);
     if (cd) { here = resolve(here, cd[1] ?? cd[2] ?? cd[3]); continue; }

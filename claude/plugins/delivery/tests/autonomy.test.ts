@@ -59,6 +59,8 @@ test("bash guard: the policy covers feature pushes and local clusters, nothing e
   const out = (cmd: string, ctx: string | null = null) => outsidePolicy(cmd, policy, "/nonexistent", () => ctx);
   expect(out("git push origin feature/x && gh pr create --base master --fill")).toBeNull();
   expect(out(`git push -q -u origin feature/x 2>&1 | grep -v "^remote:" ; gh pr create --base master --head feature/x --fill`)).toBeNull();
+  expect(out(`git commit -q -F - <<'EOF'\nfix: x\n\ngit push origin master is not part of this\nEOF\ngit push -q -u origin feature/x 2>&1 | tail -2`)).toBeNull();
+  expect(out(`git commit -q -F - <<'EOF'\nfix: x\nEOF\ngit push origin master`)).toContain("base branch");
   expect(out("git push origin feature/x && git tag v1.0.0")).toBe("git tag");
   expect(out("gh pr merge 12 --merge")).toBe("gh pr merge");
   expect(out("kubectl --context kind-heartbeat apply -f k8s/")).toBeNull();
