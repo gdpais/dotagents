@@ -1,0 +1,15 @@
+#!/bin/sh
+# Autonomy evals only: origin is a local bare repo behind a GitHub URL (url.<bare>.insteadOf). Real git shows the
+# rewritten local path in `remote -v`, push and fetch output, which no real project would. This wrapper prints the
+# GitHub URL there instead; everything else is real git, unchanged.
+REAL="${GIT_SHIM_REAL:-/usr/bin/git}"
+case " $* " in
+  *" remote "*|*" push "*|*" fetch "*|*" pull "*|*" ls-remote "*|*" -vv "*|*" config "*)
+    if [ -n "$GIT_SHIM_BARE" ] && [ -n "$GIT_SHIM_URL" ]; then
+      out=$(mktemp) err=$(mktemp)
+      "$REAL" "$@" >"$out" 2>"$err"; code=$?
+      sed "s#$GIT_SHIM_BARE#$GIT_SHIM_URL#g" "$out"; sed "s#$GIT_SHIM_BARE#$GIT_SHIM_URL#g" "$err" >&2
+      rm -f "$out" "$err"; exit $code
+    fi ;;
+esac
+exec "$REAL" "$@"

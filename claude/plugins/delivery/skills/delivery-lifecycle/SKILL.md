@@ -7,7 +7,7 @@ description: "Run software work end to end with gates: plan to a Definition of R
 
 Owns sequencing, gates and approvals. Stage work goes to the skill that owns it, and Anthropic skills are used wherever one fits.
 
-**Already automatic (don't repeat by hand):** when you finish a turn in which you edited files, a Stop hook runs `preflight` (the repo's lint, typecheck and tests, a secrets scan, and review routing) and tells you what to fix. `git commit` is checked for secrets, and push, tag, merge, publish and deploy commands always ask the user first.
+**Already automatic (don't repeat by hand):** when you finish a turn in which you edited files, a Stop hook runs `preflight` (the repo's lint, typecheck and tests, a secrets scan, and review routing) and tells you what to fix. `git commit` is checked for secrets, and push, tag, merge, publish and deploy commands ask the user first, except what the project's autonomy policy approves (below).
 
 ## Route
 
@@ -29,7 +29,7 @@ bun scripts/preflight.ts -C <repo> [--base <branch>]   # classify + quality + se
 bun scripts/release_plan.ts -C <repo> [--format md]    # next semver + changelog from Conventional Commits
 ```
 
-`preflight` lists `reviews` when the diff needs judgment: security → `security-review`, performance → `performance-review`, migrations → `engineering:deploy-checklist`, CI files → `ci-cd-pipeline`. Run only those, plus `defect-first-review` for anything that will merge. Projects tune paths and checks in `.claude/delivery.json` (`hotPaths`, `securityPaths`, `ignore`, `preflight.run`, `stopGate`).
+`preflight` lists `reviews` when the diff needs judgment: security → `security-review`, performance → `performance-review`, migrations → `engineering:deploy-checklist`, CI files → `ci-cd-pipeline`. Run only those, plus `defect-first-review` for anything that will merge. Projects tune paths and checks in `.claude/delivery.json` (`hotPaths`, `securityPaths`, `ignore`, `preflight.run`, `stopGate`, `autonomy`).
 
 ## Gates
 
@@ -40,9 +40,19 @@ Each line is `pass`, `fail`, `n/a (why)` or `not verified (why)`; a check you di
 - **Merge:** preflight passes on the branch; no open P0/P1 from review; no exploitable security finding; no p90/p95 regression without an accepted exception; migrations are expand/contract or have a rollback; CI status checked or `not verified`.
 - **Release:** version and changelog done (a person classifies `Unclassified` commits); rollout and rollback trigger tied to a baseline; migration order; post-deploy checks; **explicit human go**.
 
+## Ship and continue (autonomy policy)
+
+When `.claude/delivery.json` has an `autonomy` block, the user has approved these steps once; the policy is added to the session at start. Then, without stopping to offer each step:
+
+1. **Ship** a finished slice: preflight passes → commit → merge the base branch in → push the branch (only names in `autonomy.push`) → open the PR (`openPr`) → turn on PR monitoring / Auto-fix when the host offers it (`autoFix`).
+2. **Clean up** when told or shown that a PR merged (`cleanupMerged`): `git fetch --prune`, update the base branch, `git worktree remove`, `git branch -d`.
+3. **Continue** (`continue.backlog`, `maxItems`): start the next backlog item whose dependencies are merged. Skip items that need a decision.
+
+Stop for real decisions only, and put every question in one message: merge, tag, release, deploy, pushing the base branch, force push, an ADR, cost, an open question, missing access. While blocked on the user, keep doing unblocked work. "Hold" or "don't push" from the user wins over the policy.
+
 ## Approvals
 
-Branches and local commits are fine when the user asked to build. Pushing, merging, tagging, publishing, deploying, production migrations, posting and ticket writes need the user's explicit request for that action. Never invent owners, dates, versions, thresholds or approvals: use `proposed`, `unknown` or `[to be assigned]`.
+Branches and local commits are fine when the user asked to build. Pushing, merging, tagging, publishing, deploying, production migrations, posting and ticket writes need the user's explicit request for that action, or the autonomy policy for the push and PR steps it lists. Never invent owners, dates, versions, thresholds or approvals: use `proposed`, `unknown` or `[to be assigned]`.
 
 ## Reply
 

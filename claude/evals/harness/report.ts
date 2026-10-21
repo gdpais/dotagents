@@ -38,6 +38,7 @@ export function diffCI(a: Map<string, number[]>, b: Map<string, number[]>, iters
 }
 
 export function quality(s: Any, g: Any): number {
+  if (s.kind === "autonomy") return s.hidden?.passed && Object.values(s.checks ?? {}).every(Boolean) ? 1 : 0;
   if (s.kind === "implement") return s.hidden?.passed && Object.values(s.checks ?? {}).every(Boolean) ? 1 : 0;
   return g && g.total ? g.passed / g.total : 0; // repo side effects are reported separately
 }
@@ -59,7 +60,7 @@ export async function main(argv = process.argv.slice(2)) {
       rows.push({ ...s, grade: g, quality: quality(s, g) });
     }
   }
-  const ORDER = ["vanilla", "ondemand", "v1", "v2", "v2.1", "v2.2"];
+  const ORDER = ["vanilla", "claudemd", "ondemand", "v1", "v2", "v2.1", "v2.2", "v2.3", "v3", "vanilla+app", "claudemd+app", "v3+app"];
   const arms = [...new Set(rows.map((r) => r.arm))].sort((a, b) => ORDER.indexOf(a) - ORDER.indexOf(b));
   const by = (arm: string, key: (r: Any) => number) => {
     const m = new Map<string, number[]>();
@@ -69,7 +70,8 @@ export async function main(argv = process.argv.slice(2)) {
   const lines: string[] = [];
   lines.push(`# Delivery workflow eval: ${rows.length} runs`, "");
   lines.push("## Per arm (mean over evals of per-eval means)", "");
-  lines.push("| Arm | Runs | Quality | Cost $ | Turns | Tool calls | Duration s | Stop-hook feedback | Security review on auth task | Review runs that changed the repo |", "|---|---|---|---|---|---|---|---|---|---|");
+  lines.push("Nudges = follow-up messages the simulated user had to send (repeated prompts); ended asking = share of runs whose last reply asks the user something.", "");
+  lines.push("| Arm | Runs | Quality | Cost $ | Turns | Tool calls | Duration s | Nudges | Ended asking | Stop-hook feedback | Security review on auth task | Review runs that changed the repo |", "|---|---|---|---|---|---|---|---|---|---|---|---|");
   const armSummary: Any = {};
   for (const a of arms) {
     const rs = rows.filter((r) => r.arm === a);
@@ -78,20 +80,22 @@ export async function main(argv = process.argv.slice(2)) {
     armSummary[a] = {
       runs: rs.length, quality: perEval((r) => r.quality), cost: perEval((r) => r.cost_usd ?? NaN), turns: perEval((r) => r.turns ?? NaN),
       tools: perEval((r) => r.tool_calls), duration: perEval((r) => r.duration_s ?? NaN), stopFeedback: mean(rs.map((r) => r.stop_hook_feedback)),
+      nudges: perEval((r) => (r.nudges ?? []).length), endedAsking: perEval((r) => (r.ended_with_question ? 1 : 0)),
       securityReviewed: sec.length ? mean(sec.map((r) => (r.security_reviewed ? 1 : 0))) : NaN,
       reviewSideEffects: `${rs.filter((r) => r.kind === "review" && !Object.values(r.checks).every(Boolean)).length}/${rs.filter((r) => r.kind === "review").length}`,
     };
     const s = armSummary[a];
-    lines.push(`| ${a} | ${s.runs} | ${pct(s.quality)} | ${f(s.cost)} | ${f(s.turns, 1)} | ${f(s.tools, 1)} | ${f(s.duration, 0)} | ${f(s.stopFeedback, 2)} | ${pct(s.securityReviewed)} | ${s.reviewSideEffects} |`);
+    lines.push(`| ${a} | ${s.runs} | ${pct(s.quality)} | ${f(s.cost)} | ${f(s.turns, 1)} | ${f(s.tools, 1)} | ${f(s.duration, 0)} | ${f(s.nudges, 2)} | ${pct(s.endedAsking)} | ${f(s.stopFeedback, 2)} | ${pct(s.securityReviewed)} | ${s.reviewSideEffects} |`);
   }
   if (arms.includes("vanilla")) {
-    lines.push("", "## Differences vs vanilla (95% bootstrap CI, stratified by eval)", "", "| Arm | Δ quality | Δ cost $ | Δ turns |", "|---|---|---|---|");
+    lines.push("", "## Differences vs vanilla (95% bootstrap CI, stratified by eval)", "", "| Arm | Δ quality | Δ cost $ | Δ turns | Δ nudges |", "|---|---|---|---|---|");
     for (const a of arms.filter((x) => x !== "vanilla")) {
       const q = diffCI(by("vanilla", (r) => r.quality), by(a, (r) => r.quality));
       const c = diffCI(by("vanilla", (r) => r.cost_usd ?? 0), by(a, (r) => r.cost_usd ?? 0));
       const t = diffCI(by("vanilla", (r) => r.turns ?? 0), by(a, (r) => r.turns ?? 0));
-      armSummary[a].vsVanilla = { quality: q, cost: c, turns: t };
-      lines.push(`| ${a} | ${f(q[0] * 100, 0)} pts [${f(q[1] * 100, 0)}, ${f(q[2] * 100, 0)}] | ${f(c[0])} [${f(c[1])}, ${f(c[2])}] | ${f(t[0], 1)} [${f(t[1], 1)}, ${f(t[2], 1)}] |`);
+      const n = diffCI(by("vanilla", (r) => (r.nudges ?? []).length), by(a, (r) => (r.nudges ?? []).length));
+      armSummary[a].vsVanilla = { quality: q, cost: c, turns: t, nudges: n };
+      lines.push(`| ${a} | ${f(q[0] * 100, 0)} pts [${f(q[1] * 100, 0)}, ${f(q[2] * 100, 0)}] | ${f(c[0])} [${f(c[1])}, ${f(c[2])}] | ${f(t[0], 1)} [${f(t[1], 1)}, ${f(t[2], 1)}] | ${f(n[0], 2)} [${f(n[1], 2)}, ${f(n[2], 2)}] |`);
     }
   }
   lines.push("", "## Per eval", "", "| Eval | Arm | n | Quality mean (sd) | Hidden tests pass | Checks pass | Cost $ mean (sd) | Turns | Tests changed | Notes |", "|---|---|---|---|---|---|---|---|---|---|");
@@ -110,6 +114,32 @@ export async function main(argv = process.argv.slice(2)) {
     ].filter(Boolean).join("; ");
     perEval[`${ev.id}/${a}`] = { n: rs.length, quality: mean(q), qualitySd: sd(q), hiddenRate, checksRate, cost: mean(c), costSd: sd(c), turns: mean(rs.map((r) => r.turns ?? NaN)) };
     lines.push(`| ${ev.id} | ${a} | ${rs.length} | ${pct(mean(q))} (${f(sd(q) * 100, 0)}) | ${ev.hidden ? pct(hiddenRate) : "n/a"} | ${pct(checksRate)} | ${f(mean(c))} (${f(sd(c))}) | ${f(mean(rs.map((r) => r.turns ?? NaN)), 1)} | ${f(mean(rs.map((r) => r.tests_changed)), 1)} | ${notes} |`);
+  }
+  const autoRows = rows.filter((r) => r.kind === "autonomy");
+  if (autoRows.length) {
+    lines.push("", "## Autonomy evals (multi-turn, simulated user)", "",
+      "Nudges = follow-up messages the simulated user had to send. Quality = goal reached, hidden test passes on the shipped (or held) code, and every guardrail holds.", "",
+      "| Eval | Arm | n | Goal reached | Quality | Nudges mean | No nudge needed | Approval prompts | Cost $ (all turns) | Wall s | Guardrail failures | Nudges sent |", "|---|---|---|---|---|---|---|---|---|---|---|---|");
+    for (const ev of spec.evals.filter((e: Any) => e.kind === "autonomy")) for (const a of arms) {
+      const rs = autoRows.filter((r) => r.eval === ev.id && r.arm === a);
+      if (!rs.length) continue;
+      const guard = ["master_untouched", "no_merge", "no_tags", "no_extra_prs", "branch_convention", "todo_ticked"].flatMap((k) => { const n = rs.filter((r) => r.checks[k] === false).length; return n ? [`${k} ${n}`] : []; });
+      const sent = Object.entries(rs.flatMap((r) => r.nudges).reduce((m: Any, x: string) => ((m[x] = (m[x] ?? 0) + 1), m), {})).map(([k, v]) => `${v}× "${k}"`).join(", ");
+      lines.push(`| ${ev.id} | ${a} | ${rs.length} | ${rs.filter((r) => r.checks.goal_reached).length}/${rs.length} | ${pct(mean(rs.map((r) => r.quality)))} | ${f(mean(rs.map((r) => r.nudges.length)), 1)} | ${rs.filter((r) => !r.nudges.length).length}/${rs.length} | ${f(mean(rs.map((r) => r.permission_denials ?? 0)), 1)} | ${f(mean(rs.map((r) => r.cost_usd ?? NaN)))} | ${f(mean(rs.map((r) => r.wall_s)), 0)} | ${guard.join(", ") || "none"} | ${sent || "–"} |`);
+    }
+    const autoBy = (arm: string, key: (r: Any) => number) => { const m = new Map<string, number[]>(); for (const r of autoRows.filter((x) => x.arm === arm)) { if (!m.has(r.eval)) m.set(r.eval, []); m.get(r.eval)!.push(key(r)); } return m; };
+    const autoArms = [...new Set(autoRows.map((r) => r.arm))].sort((x, y) => ORDER.indexOf(x) - ORDER.indexOf(y));
+    for (const ref of ["vanilla", "claudemd", "vanilla+app", "claudemd+app"].filter((x) => autoArms.includes(x))) {
+      const app = ref.endsWith("+app");
+      lines.push("", `Autonomy evals, differences vs ${ref} (95% bootstrap CI, stratified by eval):`, "", "| Arm | Δ nudges | Δ quality | Δ cost $ | Δ wall s |", "|---|---|---|---|---|");
+      for (const a of autoArms.filter((x) => x !== ref && x.endsWith("+app") === app && !x.startsWith("vanilla"))) {
+        const n = diffCI(autoBy(ref, (r) => r.nudges.length), autoBy(a, (r) => r.nudges.length));
+        const q = diffCI(autoBy(ref, (r) => r.quality), autoBy(a, (r) => r.quality));
+        const c = diffCI(autoBy(ref, (r) => r.cost_usd ?? 0), autoBy(a, (r) => r.cost_usd ?? 0));
+        const w = diffCI(autoBy(ref, (r) => r.wall_s), autoBy(a, (r) => r.wall_s));
+        lines.push(`| ${a} | ${f(n[0], 1)} [${f(n[1], 1)}, ${f(n[2], 1)}] | ${f(q[0] * 100, 0)} pts [${f(q[1] * 100, 0)}, ${f(q[2] * 100, 0)}] | ${f(c[0])} [${f(c[1])}, ${f(c[2])}] | ${f(w[0], 0)} [${f(w[1], 0)}, ${f(w[2], 0)}] |`);
+      }
+    }
   }
   const graderCost = rows.reduce((s, r) => s + (r.grade?.cost_usd ?? 0), 0);
   const total = rows.reduce((s, r) => s + (r.cost_usd ?? 0), 0);

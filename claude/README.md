@@ -39,5 +39,14 @@ Requires `bun` on `PATH` or in `~/.bun/bin` (the hooks and scripts are TypeScrip
 
 Or for one session only: `claude --plugin-dir /Users/gabiru/personal/dotagents/claude/plugins/delivery`.
 
-What it does without being asked: when Claude finishes a turn in which it edited files, the Stop hook runs `preflight` (the repo's lint, typecheck and tests, a secrets scan on the diff, a CI audit when workflows changed) and sends back failures and any review the change needs (security, performance, migrations, CI). `git commit` is checked for secrets; push, tag, merge, publish and deploy commands always ask first. Per project, `.claude/delivery.json` can set `preflight.run` (which checks), `preflight.timeoutSeconds`, `hotPaths`, `securityPaths`, `ignore`, or `stopGate: false`.
+What it does without being asked: when Claude finishes a turn in which it edited files, the Stop hook runs `preflight` (the repo's lint, typecheck and tests, a secrets scan on the diff, a CI audit when workflows changed) and sends back failures and any review the change needs (security, performance, migrations, CI). `git commit` is checked for secrets; push, tag, merge, publish and deploy commands ask first. Per project, `.claude/delivery.json` can set `preflight.run` (which checks), `preflight.timeoutSeconds`, `hotPaths`, `securityPaths`, `ignore`, or `stopGate: false`.
+
+**Autonomy (v3, opt-in per project).** An `autonomy` block in `.claude/delivery.json` approves the mechanical shipping steps once, so Claude stops asking for them:
+
+```json
+{ "autonomy": { "push": ["feature/*"], "openPr": true, "autoFix": true, "cleanupMerged": true,
+                "continue": { "backlog": "TODO.md", "maxItems": 3 }, "localClusters": ["kind-*", "minikube"] } }
+```
+
+With it, the policy is added to each new session, pushes of matching branches and kubectl/helm against the listed local clusters stop asking, and the Stop hook nudges once when finished work isn't pushed or has no PR, unless the user said to hold. Merges, tags, releases, deploys, pushes to the base branch and force pushes still ask. Without the block, behaviour is v2.3's.
 

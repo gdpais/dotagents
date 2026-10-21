@@ -5,9 +5,14 @@
  *     high-confidence finding (value masked in the reason).
  *   - outward or irreversible commands (push, tag, merge, release, publish,
  *     deploy/apply): ask the user first, whatever the permission mode.
+ *   - v3: when `.claude/delivery.json` has an `autonomy` policy, pushes of the branches it
+ *     names and kubectl/helm against its local clusters pass through (the user approved
+ *     them once); everything else above still asks.
  * Everything else passes through untouched (no output, exit 0).
  */
+import { resolve } from "node:path";
 import { scanPatch } from "../skills/delivery-lifecycle/scripts/scan_secrets";
+import { explicitContext, globMatch, loadConfig, parseAutonomy, pushOutsidePolicy, segments, type Autonomy } from "./autonomy";
 
 /**
  * `git tag` creates a tag only with a creation flag or a tag name; listing (no name,
@@ -44,6 +49,41 @@ export function classifyCommand(cmd: string): { commit: boolean; irreversible: s
   };
 }
 
+const run = (cmd: string[], cwd: string) => {
+  try {
+    const p = Bun.spawnSync(cmd, { cwd, stdout: "pipe", stderr: "ignore" });
+    return p.exitCode === 0 ? p.stdout.toString().trim() : null;
+  } catch { return null; } // missing cwd or binary (e.g. no kubectl): treat as unknown
+};
+
+/**
+ * Null when every outward segment of the command is covered by the autonomy policy, else the label
+ * of the first one that isn't. Segments that aren't outward are ignored.
+ */
+export function outsidePolicy(cmd: string, policy: Autonomy, cwd: string, kubeContext: () => string | null = () => null): string | null {
+  let here = cwd;
+  for (const seg of segments(cmd)) {
+    // `cd .claude/worktrees/x && git push`: later segments run in that directory.
+    const cd = /^cd\s+(?:"([^"]+)"|'([^']+)'|(\S+))\s*$/.exec(seg);
+    if (cd) { here = resolve(here, cd[1] ?? cd[2] ?? cd[3]); continue; }
+    const label = classifyCommand(seg).irreversible;
+    if (!label) continue;
+    if (label === "git push") {
+      const dir = /\bgit\s+-C\s+(\S+)/.exec(seg)?.[1];
+      const current = run(["git", "rev-parse", "--abbrev-ref", "HEAD"], dir ? resolve(here, dir) : here);
+      const why = pushOutsidePolicy(seg, policy, current);
+      if (why) return `git push (${why})`;
+      continue;
+    }
+    if (label === "cluster change" && policy.localClusters.length) {
+      const ctx = explicitContext(seg) ?? kubeContext();
+      if (ctx && policy.localClusters.some((g) => globMatch(g, ctx))) continue;
+    }
+    return label;
+  }
+  return null;
+}
+
 const decide = (decision: "ask" | "deny", reason: string) =>
   JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: decision, permissionDecisionReason: reason } });
 
@@ -53,12 +93,17 @@ export async function main(): Promise<number> {
   if (input.tool_name !== "Bash") return 0;
   const cmd = input.tool_input?.command ?? "";
   const c = classifyCommand(cmd);
+  const cwd = input.cwd ?? process.cwd();
   if (c.irreversible) {
-    console.log(decide("ask", `${c.irreversible} is outward-facing or hard to undo; it needs the user's explicit go (delivery approval rules).`));
-    return 0;
+    const policy = parseAutonomy(loadConfig(cwd));
+    const label = policy ? outsidePolicy(cmd, policy, cwd, () => run(["kubectl", "config", "current-context"], cwd)) : c.irreversible;
+    if (label) {
+      console.log(decide("ask", `${label} is outward-facing or hard to undo; it needs the user's explicit go (delivery approval rules).`));
+      return 0;
+    }
   }
   if (c.commit) {
-    const p = Bun.spawnSync(["git", "diff", "--cached", "-U0", "--no-color", "--no-ext-diff"], { cwd: input.cwd ?? process.cwd() });
+    const p = Bun.spawnSync(["git", "diff", "--cached", "-U0", "--no-color", "--no-ext-diff"], { cwd });
     const high = p.exitCode === 0 ? scanPatch(p.stdout.toString()).filter((f) => f.confidence === "high") : [];
     if (high.length) {
       console.log(decide("deny", `Staged changes contain ${high.length} likely secret(s): ${high.slice(0, 3).map((f) => `${f.rule} at ${f.file}:${f.line} (${f.masked})`).join("; ")}. Remove them (use env/config) before committing; rotate any real secret.`));

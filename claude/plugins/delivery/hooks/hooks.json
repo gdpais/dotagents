@@ -1,5 +1,5 @@
 {
-  "description": "Delivery workflow gates: run preflight (tests, lint, typecheck, secrets, review routing) when Claude finishes a turn that edited files; scan commits for secrets; ask before pushes, tags, merges, releases and deploys. Skipped, with one notice at session start, when bun is missing.",
+  "description": "Delivery workflow gates: run preflight (tests, lint, typecheck, secrets, review routing) when Claude finishes a turn that edited files; scan commits for secrets; ask before pushes, tags, merges, releases and deploys. With an autonomy policy in .claude/delivery.json (v3), the approved steps (push feature branches, open PRs, clean up merged branches, continue the backlog) run without asking. Skipped, with one notice at session start, when bun is missing.",
   "hooks": {
     "SessionStart": [
       {
@@ -7,6 +7,11 @@
           {
             "type": "command",
             "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/run.sh\" --check",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/run.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/session_context.ts\"",
             "timeout": 10
           }
         ]

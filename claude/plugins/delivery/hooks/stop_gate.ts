@@ -11,6 +11,11 @@
  * Limits: at most 2 quality/secret blocks per session, and each review gate
  * blocks at most once, so Claude can explain instead of looping.
  *
+ * v3, with an `autonomy` policy in .claude/delivery.json: when the checks pass but the branch has
+ * work that isn't pushed (or was pushed without a PR), block once more and tell Claude to ship it per
+ * the policy, unless the user's last message asked to hold. Edits made on the base branch get told to
+ * move to a feature branch. Never more than once per session.
+ *
  * Opt-out: DELIVERY_STOP_GATE=0, or {"stopGate": false} in .claude/delivery.json.
  * Reviews only: {"stopGate": {"reviews": false}} keeps the quality and secret checks.
  * Exit 0 = allow stop; exit 2 + stderr = block with that message.
@@ -19,9 +24,11 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { preflight, type Preflight, type Review } from "../skills/delivery-lifecycle/scripts/preflight";
+import { globMatch, loadConfig, parseAutonomy, type Autonomy } from "./autonomy";
+import { baseBranch } from "./session_context";
 
 interface HookInput { session_id?: string; transcript_path?: string; cwd?: string; stop_hook_active?: boolean }
-interface State { qualityBlocks: number; reviewBlocks: string[] }
+interface State { qualityBlocks: number; reviewBlocks: string[]; shipNudged?: boolean }
 type Any = any;
 
 const EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
@@ -51,15 +58,6 @@ export function skillUsed(uses: { name: string; input: Any }[], skill: string): 
     (u.name === "Read" && String(u.input.file_path ?? "").endsWith(`/${bare}/SKILL.md`)));
 }
 
-function loadConfig(cwd: string): Any {
-  for (let dir = cwd; dir && dir !== "/"; dir = join(dir, "..")) {
-    const p = join(dir, ".claude", "delivery.json");
-    if (existsSync(p)) { try { return JSON.parse(readFileSync(p, "utf8")); } catch { return {}; } }
-    if (existsSync(join(dir, ".git"))) break;
-  }
-  return {};
-}
-
 async function git(args: string[], cwd: string): Promise<string | null> {
   const p = Bun.spawn(["git", ...args], { cwd, stdout: "pipe", stderr: "ignore" });
   const [out, code] = await Promise.all([new Response(p.stdout).text(), p.exited]);
@@ -74,6 +72,78 @@ async function target(cwd: string): Promise<{ base?: string }> {
     if (branch && branch !== d && (await git(["rev-parse", "--verify", "--quiet", d], cwd))) return { base: d };
   }
   return {};
+}
+
+/** The text of the last prompt the user typed (not tool results or hook feedback). */
+export function lastUserPrompt(transcript: string): string {
+  let last = "";
+  for (const line of transcript.split("\n")) {
+    if (!line.includes('"user"')) continue;
+    try {
+      const e = JSON.parse(line);
+      if (e?.type !== "user" || e.isMeta) continue;
+      const c = e.message?.content;
+      const text = typeof c === "string" ? c : Array.isArray(c) ? c.filter((x: Any) => x?.type === "text").map((x: Any) => x.text).join(" ") : "";
+      if (text && !text.includes("Stop hook feedback") && !text.startsWith("<")) last = text;
+    } catch { /* partial line */ }
+  }
+  return last;
+}
+
+/** True when the user asked Claude not to ship yet ("don't push", "hold", "I want to look first"…). */
+export function asksToHold(prompt: string): boolean {
+  return /\b(don'?t|do not|never|no need to)\b[^.!?\n]{0,30}\b(push|pr|pull request|ship|commit)/i.test(prompt)
+    || /\bnot yet\b|\bhold (off|on|it)?\b|\blocal(ly)? only\b|\bkeep it local\b|\b(look|review|check)\b[^.!?\n]{0,25}\bfirst\b/i.test(prompt);
+}
+
+/** Checked-out branches of the repository's worktrees (the main checkout first), from `git worktree list --porcelain`. */
+async function worktrees(cwd: string): Promise<{ path: string; branch: string | null }[]> {
+  const out = (await git(["worktree", "list", "--porcelain"], cwd)) ?? "";
+  return out.split("\n\n").map((b) => ({
+    path: /^worktree (.+)$/m.exec(b)?.[1] ?? "",
+    branch: /^branch refs\/heads\/(.+)$/m.exec(b)?.[1] ?? null,
+  })).filter((w) => w.path);
+}
+
+/**
+ * Why the policy says work should still be shipped, or null when there is nothing to ship. Looks at every
+ * worktree, since work often happens in `.claude/worktrees/<branch>` while the session sits in the main checkout.
+ */
+export async function unshipped(cwd: string, policy: Autonomy, uses: { name: string; input: Any }[]): Promise<string | null> {
+  if (!policy.push.length || !(await git(["remote"], cwd))) return null;
+  const base = baseBranch(cwd, policy.base);
+  const here = await git(["rev-parse", "--show-toplevel"], cwd);
+  // Claude's own config (.claude/) is often untracked; it isn't work to ship.
+  const dirtyAt = async (dir: string) => ((await git(["status", "--porcelain"], dir)) ?? "").split("\n").some((l) => l.trim() && !/^.. "?\.claude\//.test(l));
+  const bash = uses.filter((u) => u.name === "Bash").map((u) => String(u.input.command ?? ""));
+  const list = await worktrees(cwd);
+  for (const w of list.length ? list : [{ path: here ?? cwd, branch: await git(["rev-parse", "--abbrev-ref", "HEAD"], cwd) }]) {
+    if (!w.branch) continue;
+    const where = w.path === here ? "" : ` (worktree ${w.path})`;
+    const dirty = await dirtyAt(w.path);
+    if (w.branch === base) {
+      if (w.path !== here) continue;
+      const ahead = Number((await git(["rev-list", "--count", `origin/${base}..HEAD`], w.path)) ?? 0);
+      if (dirty || ahead > 0) return `you changed files on ${base}. Move the work to a new branch matching ${policy.push.join(", ")} (keep ${base} as it was) and ship it from there`;
+      continue;
+    }
+    if (!policy.push.some((g) => globMatch(g, w.branch!))) continue;
+    const upstream = await git(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"], w.path);
+    const since = upstream ? "@{u}" : (await git(["rev-parse", "--verify", "--quiet", `origin/${base}`], w.path)) ? `origin/${base}` : base;
+    const ahead = Number((await git(["rev-list", "--count", `${since}..HEAD`], w.path)) ?? 0);
+    if (dirty || ahead > 0) return `${w.branch}${where} has ${dirty ? "uncommitted changes" : `${ahead} commit(s) not pushed`}. Commit, push it${policy.openPr ? ` and open the pull request against ${base}` : ""}`;
+    if (policy.openPr && upstream && bash.some((b) => /\bgit\b[^;&|]*\bpush\b/.test(b)) && !bash.some((b) => /\bgh\s+pr\s+(create|view|list)\b/.test(b)))
+      return `${w.branch}${where} is pushed but no pull request was opened. Open it against ${base}`;
+  }
+  return null;
+}
+
+export function shipMessage(why: string, policy: Autonomy): string {
+  return [
+    `Delivery autonomy (.claude/delivery.json, approved by the user): the checks pass, but ${why}.`,
+    `Do it now without asking${policy.continue ? `, then continue with the next unblocked item in ${policy.continue.backlog}` : ""}.`,
+    "Stop instead only if the user asked you to hold or something needs their decision; then say so in one line. This won't block again.",
+  ].join(" ");
 }
 
 export function message(p: Preflight, reviews: Review[], attempt: number): string {
@@ -113,6 +183,15 @@ export async function main(): Promise<number> {
   const qualityBlock = !p.ok && state.qualityBlocks < 2;
   if (!qualityBlock && !reviews.length) {
     const notes = p.reviews.filter((r) => !reviews.includes(r) && !skillUsed(uses, r.skill)).map((r) => `${r.gate}: ${r.why} → consider ${r.skill} before merging`);
+    const policy = parseAutonomy(config);
+    const why = policy && p.ok && !state.shipNudged && !asksToHold(haveTranscript ? lastUserPrompt(readFileSync(input.transcript_path!, "utf8")) : "")
+      ? await unshipped(cwd, policy, uses) : null;
+    if (why && policy) {
+      state.shipNudged = true;
+      try { mkdirSync(stateDir, { recursive: true }); writeFileSync(statePath, JSON.stringify(state)); } catch { /* best effort */ }
+      process.stderr.write(shipMessage(why, policy) + (notes.length ? `\nNotes for the PR description: ${notes.join("; ")}` : "") + "\n");
+      return 2;
+    }
     if (notes.length) console.log(JSON.stringify({ systemMessage: `Delivery notes (not blocking): ${notes.join("; ")}` }));
     return 0;
   }
