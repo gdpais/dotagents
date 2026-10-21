@@ -49,11 +49,16 @@ test("pushOutsidePolicy: feature branches pass; base, force, tags, deletes and o
   expect(p("git push origin :feature/x")).toContain("deletion");
   expect(p("git push origin --delete feature/x")).toContain("delete");
   expect(p("git push origin release/1.0")).toContain("not in autonomy.push");
+  // Redirections aren't refspecs (DEL v3 asked on every real push: `git push ... 2>&1 | grep -v ^remote:`).
+  for (const ok of ["git push -q -u origin feature/x 2>&1", "git push origin feature/x 2> /dev/null", "git push origin feature/x >push.log 2>&1", "git push &>/dev/null"]) expect([ok, p(ok)]).toEqual([ok, null]);
+  expect(p("git push origin master 2>&1")).toContain("base branch");
+  expect(p("git push -f origin feature/x 2>&1")).toContain("force");
 });
 
 test("bash guard: the policy covers feature pushes and local clusters, nothing else", () => {
   const out = (cmd: string, ctx: string | null = null) => outsidePolicy(cmd, policy, "/nonexistent", () => ctx);
   expect(out("git push origin feature/x && gh pr create --base master --fill")).toBeNull();
+  expect(out(`git push -q -u origin feature/x 2>&1 | grep -v "^remote:" ; gh pr create --base master --head feature/x --fill`)).toBeNull();
   expect(out("git push origin feature/x && git tag v1.0.0")).toBe("git tag");
   expect(out("gh pr merge 12 --merge")).toBe("gh pr merge");
   expect(out("kubectl --context kind-heartbeat apply -f k8s/")).toBeNull();

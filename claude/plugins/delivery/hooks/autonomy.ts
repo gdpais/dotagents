@@ -96,13 +96,24 @@ export function segments(cmd: string): string[] {
 
 const words = (s: string) => (s.match(/"[^"]*"|'[^']*'|\S+/g) ?? []).map((w) => w.replace(/^["']|["']$/g, ""));
 
+/** Drop shell redirections (`2>&1`, `>out.log`, `2> /dev/null`, `&>log`): they aren't command arguments. */
+export function withoutRedirects(ws: string[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < ws.length; i++) {
+    const m = /^(?:\d*|&)(?:>>?|<)(.*)$/.exec(ws[i]);
+    if (!m) out.push(ws[i]);
+    else if (!m[1]) i++; // `2> file`: the target is the next word
+  }
+  return out;
+}
+
 /**
  * Why a `git push` segment falls outside the policy, or null when every branch it updates may be pushed.
  * `current` is the checked-out branch, used when the push names no refspec or uses HEAD.
  */
 export function pushOutsidePolicy(segment: string, policy: Autonomy, current: string | null): string | null {
-  const w = words(segment);
-  const at = w.findIndex((x, i) => x === "push" && w.slice(0, i).includes("git"));
+  const w = withoutRedirects(words(segment));
+  const at =w.findIndex((x, i) => x === "push" && w.slice(0, i).includes("git"));
   if (at < 0) return null;
   const args = w.slice(at + 1);
   const flags = args.filter((a) => a.startsWith("-"));
