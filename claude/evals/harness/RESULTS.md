@@ -112,3 +112,115 @@ Haiku, v2.2 vs no workflow across all 13 evals: **+10 pts [+3, +17]**, cost +$0.
 
 - **Make skills trigger on any model,** for example with a `UserPromptSubmit` hook that names the matching skill when the prompt is a release, CI audit, merge review or performance question. Then re-run the review tasks on Sonnet and Haiku. Expect the CI-audit and release gains seen on Opus if triggering is the bottleneck.
 - Until then, Opus with the plugin stays the default. On cheaper models the plugin is a free safety net (hooks only), not a quality upgrade.
+
+# Iteration 5: autonomy, DEL v3 vs no DEL (2026-10-20)
+
+Question: does an approved autonomy policy cut the hand-holding seen in Heartbeat, where about 30% of prompts (32 of 106, 2026-10-04 to 10-19) only moved Claude to the next mechanical step: push and open the PR, turn on Auto-fix, clean up, "what's next", "GO"? 116 multi-turn sessions (Opus 5.5) on three autonomy tasks (README.md, *Autonomy tier*). A simulated user sends the next nudge a real user would until the change is shipped as a PR. Session cost $59.55, grading $2.15. Pilots and runs discarded after harness fixes (below) cost about $19 more.
+
+Two settings. **Headless** is plain `claude -p`. **App-like (+app)** appends the two rules from the Claude desktop app's prompt that make Claude ask before outward actions ("confirm first unless durably authorized…"; "commit or push only when the user asks"). The app-like setting reproduces Heartbeat: without a policy, Claude asked before pushing in 5/5 runs.
+
+| Setting | Arm | Plain item (`auto-ship`): nudges, quality | After a merge (`auto-merged`): nudges, quality | Told to hold (`auto-hold`) | Cost per task |
+|---|---|---|---|---|---|
+| App-like | no DEL | 1.0 (5/5 needed one), 100% | 1.4 (9/10 needed one), 100% | – | $0.59 |
+| App-like | CLAUDE.md working agreement | 0.0, 100% | 0.0, 100% | – | $0.57 |
+| App-like | **DEL v3 + policy** | **0.0, 100%** | **0.0, 100%** | – | **$0.55** |
+| Headless | no DEL | 0.0, 100% | 1.0 (8/10 needed one), 100% | held 5/5 | $0.48 |
+| Headless | CLAUDE.md working agreement | 0.0, 100% | 0.0, 100% | held 5/5 | $0.50 |
+| Headless | **DEL v3 + policy** | **0.0, 100%** | **0.0, 100%** | **held 5/5** | **$0.42** |
+| Headless | DEL v2.3 (today's plugin, n=3) | never shipped: 4.0, 0% | never shipped: 4.0, 0% | – | $0.87 |
+
+Differences with 95% bootstrap CIs, stratified by task:
+
+| Comparison | Δ nudges per task | Δ quality | Δ cost per task | Δ wall time |
+|---|---|---|---|---|
+| v3 vs no DEL, app-like | **−1.2 [−1.4, −0.9]** | 0 pts | −$0.04 [−0.16, +0.07] | −18 s [−34, −3] |
+| v3 vs no DEL, headless | −0.3 [−0.5, −0.2] | 0 pts | −$0.06 [−0.09, −0.03] | −16 s [−22, −9] |
+| v3 vs CLAUDE.md, app-like | 0.0 | 0 pts | −$0.02 [−0.10, +0.05] | −11 s [−22, 0] |
+| v3 vs CLAUDE.md, headless | 0.0 | 0 pts | −$0.08 [−0.11, −0.05] | −20 s [−30, −11] |
+
+## What the data says
+
+1. **Yes, writing the authorization down removes the handshakes.** In the app-like setting, v3 needed no nudges on any task (0 of 30 runs). Without it, Claude asked before every push and stopped after cleaning up a merged PR, so it needed 1.2 more user messages per task. Quality and guardrails were the same in every arm: correct code on the shipped branch, master untouched, no merges, tags or extra PRs.
+2. **The gain comes from the policy, not from DEL's machinery.** A five-line CLAUDE.md working agreement got the same zero nudges. Treat their costs as equal. v3's lower headless average (−$0.08) comes from `auto-ship`, where the CLAUDE.md runs had their `cd /abs/path && gh pr create` compounds refused by the harness allowlist and retried them (21 PR attempts in 5 runs vs 7). That is a harness artefact, not a difference you'd see in the app. On `auto-merged`, v3 cost more ($0.49 vs $0.42 headless, $0.53 vs $0.44 app-like). Cost follows the number of turns, since each turn re-reads the context.
+3. **Autonomy didn't override the user.** Asked to "implement but don't push yet", every arm held in 5/5 runs.
+4. **Today's DEL (v2.3) works against autonomy.** Its Bash hook asks before every push, so headless it never shipped. In the app, each of those asks is an approval click: 5.7–6 per task. Installing v2.3 as it is would add interaction.
+5. **No regression where DEL already pays.** Release preparation on v3 scored 5/5 assertions with the repo untouched and no tags in 5/5 runs. The release skill triggered every time.
+
+## Bugs the evals found (fixed before the runs above)
+
+- **Plugin:** inside a worktree under `.claude/worktrees/`, the hooks didn't find the main checkout's `.claude/delivery.json`. The Bash guard also judged `cd <worktree> && git push` by the session folder's branch (`master`) and asked. Heartbeat uses exactly this layout. The Stop gate's ship check now looks at every worktree.
+- **Harness:** `gh` wasn't on the allowlist. `total_cost_usd` is cumulative over a resumed session, so the last turn's figure is used. Retried PRs, including `owner:branch` heads, count once. The simulated user sent the wrong nudge after a cleanup or a fast-forward, because "started work" was read from the diff against the first commit; it now reads uncommitted changes and new branches. 20 runs made with the wrong nudges were discarded and re-run.
+
+## Limits
+
+- One model, small fixtures, a scripted user. Auto-fix (desktop only), CI waits and "GO" after manual steps outside the repo (the replica login) weren't simulated.
+- The app-like setting is two appended rules, not the full desktop prompt.
+- Outward permission denials (`cd /abs && git push` compounds refused by the harness allowlist) happen in every arm and aren't counted against any of them.
+
+# Iteration 6: full suite, no workflow vs CLAUDE.md agreement vs DEL v3 (2026-10-20)
+
+Question: on all the earlier tasks, plus the autonomy tasks, what do the CLAUDE.md working agreement and DEL v3 + policy each give over no workflow and over each other? The arms are vanilla, claudemd (the agreement in `.claude/CLAUDE.md` of every fixture) and v3 (the plugin plus the autonomy policy in every fixture).
+
+**Scope and cost.** 13 classic evals × 3 arms × 5 runs = 195 new headless sessions (Opus 5.5), plus the 105 iteration-5 autonomy runs reused unchanged, for 300 scored runs. New sessions cost $55.84, plus $3.98 for 7 discarded runs and $7.18 for grading: about $67. The CLAUDE.md and v3 arms ran in parallel sub-agents, using `bun pipeline.ts` (run → score → grade → report).
+
+**New in the pipeline: nudges on implementation tasks.** When a session stops to ask while the hidden test still fails, the scripted user replies "Go ahead." Every run also records whether its last reply asks the user something.
+
+| 13 classic tasks | Quality | Review tasks (4) | Release prep changed the repo | CI audit | Cost per task | Nudges | Ended asking |
+|---|---|---|---|---|---|---|---|
+| No workflow | 97% | 90% | 3/5 | 80% (misses the scan gap 5/5) | $0.25 | 0 | 2% |
+| CLAUDE.md agreement | 97% | 90% | 3/5 | 80% (misses it 5/5) | $0.30 | 0 | 42% |
+| **DEL v3 + policy** | **100%** | **100%** | **0/5** | **100%** | **$0.30** | **0** | **9%** |
+
+Differences with 95% bootstrap CIs, stratified by task:
+
+| Comparison | Δ quality, 13 classic | Δ quality, 4 review | Δ cost per task | Δ ended asking |
+|---|---|---|---|---|
+| CLAUDE.md vs no workflow | 0 pts [−1, +1] | 0 pts [−4, +4] | +$0.05 [+0.03, +0.06] | +40 pts [+29, +51] |
+| v3 vs no workflow | +3 pts [+2, +4] | +10 pts [+8, +13] | +$0.05 [+0.04, +0.06] | +8 pts [+2, +14] |
+| **v3 vs CLAUDE.md** | **+3 pts [+2, +4]** | **+10 pts [+8, +13]** | **$0.00 [−0.01, +0.01]** | **−32 pts [−45, −20]** |
+
+Autonomy tasks (iteration 5, unchanged): in the app-like setting, both CLAUDE.md and v3 needed 0 nudges against no workflow's 1.2 per task, with the same quality.
+
+## What the data says
+
+1. **v3 does everything the agreement does, plus the review gains, at the same cost.** Both remove the autonomy handshakes. Only v3 also scores 100% on reviews: it catches the missing secret and dependency scans in the CI audit (5/5), keeps release prep out of the repo (5/5), and gets the p90/p95 question fully right. The agreement scores exactly like no workflow on reviews, and like it, edits the repo during release prep in 3/5 runs. Both cost about +$0.05 per task over no workflow, with no difference between them.
+2. **The extra cost is the shipping work itself.** With either one, Claude branches and commits on implementation tasks that no workflow leaves as uncommitted edits: 11–15 turns against 5 on `impl-discount`. In a repo with a remote, these are the push and PR steps you'd otherwise prompt for.
+3. **The agreement makes Claude ask when it can't comply; v3 rarely does.** The implementation fixtures have no git remote. With the agreement, Claude ended 21 of 45 implementation runs asking where to push and which base branch to use. With v3 it did so once. In Heartbeat, which has a remote, this question wouldn't come up. It does show that the agreement's wording pushes Claude to escalate.
+4. **No stop-and-ask nudges on any classic task in any arm.** All three arms finished every implementation task without stopping to ask first: 0 "Go ahead." in 135 runs.
+5. **Implementation quality is 100% everywhere,** once work done in worktrees is counted (below). Under the agreement, Claude put the work in a worktree in 7 of 45 runs, following CONTRIBUTING-style branching. No workflow and v3 always worked in the checkout.
+
+## Harness fixes in this iteration
+
+- **Implementation scoring looked only at the main checkout.** Work committed in a worktree (beside the repo or under `.claude/worktrees/`) or on a new branch scored as failed: 10 CLAUDE.md runs. The scorer now tests the main checkout, every worktree and every new or moved branch, and counts the first place where the hidden test passes (`work_location` in score.json). The copy step also skipped the contents of any worktree that lives under `.claude/worktrees/`; fixed.
+- **The "Go ahead." nudge had the same blind spot.** 7 CLAUDE.md runs were nudged although their work was done in a worktree, and some took the nudge as licence for extra work: deleting an old branch, rebasing another one. Those runs were discarded and re-run with the fixed check; none needed a nudge.
+- Found by the CLAUDE.md sub-agent, which re-checked its failing runs by hand instead of accepting the score.
+
+# Iteration 7: autonomous shipping on the hard trap tasks (2026-10-21)
+
+Question: when Claude ships on its own, does it ship the trap fixes correctly, and do the nudge results from the easy task hold on hard ones? Each of the five hard trap tasks became TODO 1.1 in a copy of its fixture, with a CONTRIBUTING.md and a local remote. The prompt was just "Start on TODO 1.1." A scripted user nudged until a PR to `main` was open. Scoring used the task's own hidden test, suite and typecheck, run on the shipped branch. App-like setting, 5 tasks × 3 arms × 5 runs = 75 sessions, $35.56. Three pilots cost $11.36 and were discarded after fixing two realism bugs (below).
+
+| Arm (app-like) | Nudges per task | Runs needing none | Shipped correctly | Cost per task | Turns | Wall time |
+|---|---|---|---|---|---|---|
+| No workflow | 1.0 | 0/25 | 22/25 | $0.40 | 17.5 | 66 s |
+| CLAUDE.md agreement | 0.1 | 23/25 | 23/25 | $0.62 | 29.6 | 106 s |
+| **DEL v3 + policy** | **0.0** | **25/25** | **24/25** | **$0.41** | **16.4** | **61 s** |
+
+Differences with 95% bootstrap CIs, stratified by task:
+
+| Comparison | Δ nudges per task | Δ quality | Δ cost per task | Δ wall time |
+|---|---|---|---|---|
+| CLAUDE.md vs no workflow | −0.9 [−1.0, −0.8] | +4 pts [−8, +16] | **+$0.22 [+0.19, +0.26]** | +40 s [+30, +51] |
+| v3 vs no workflow | **−1.0 [−1.0, −1.0]** | +8 pts [−4, +16] | +$0.01 [−0.00, +0.03] | −5 s [−12, 0] |
+| v3 vs CLAUDE.md | −0.1 [−0.2, 0.0] | +4 pts [−8, +16] | **−$0.21 [−0.24, −0.18]** | −45 s [−55, −36] |
+
+## What the data says
+
+1. **The handshake result holds on hard tasks.** With no workflow, Claude stopped before pushing in all 25 runs. v3 never needed a nudge. The agreement needed one in 2 of 25 runs.
+2. **Here the agreement is expensive and v3 isn't.** Under the agreement, Claude set up a git worktree in all 25 runs and took about 30 turns, against 16–17 for the other arms. That cost +$0.22 and +40 s per task. v3 shipped at the cost of no workflow. On the easy task in iteration 5, the two cost the same, so this extra overhead appears on bigger tasks.
+3. **Autonomy didn't ship broken trap fixes more often.** No-workflow runs also shipped (after being nudged), and quality differences are within noise at n=5. The one task that failed in every arm was `auto-migration`. Those runs also renamed the app's `userName` field, which the task didn't ask for, and broke the API callers rely on: no workflow 3/5, CLAUDE.md 1/5, v3 1/5. In iterations 3 and 6, the same task as a single prompt passed in every arm. The open-ended "start on TODO 1.1" framing invited wider changes, and no gate catches an API change that the project's own tests don't cover.
+4. **Guardrails held.** `main` was never pushed, nothing was merged or tagged, and every shipped branch was named `feature/1.1-*` with the TODO ticked. One extra-PR flag came from an agreement run that also tried a PR with `main` as its head.
+
+## Realism fixes (before the counted runs)
+
+- The fake origin and fake `gh` called every repo `acme/notes`. On the ledger code, Claude rightly asked whether that was the right repo. Each fixture now has its own name (`repo` in the eval).
+- `git remote -v` and push output showed the local bare path behind the GitHub URL, so Claude doubted origin was GitHub. A `git` wrapper (`shims/git`) now prints the GitHub URL in those places. The iteration-5 runs on `notes` predate this wrapper; their nudge counts for no workflow may be slightly high for that reason.

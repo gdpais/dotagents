@@ -1,0 +1,55 @@
+#!/usr/bin/env bun
+/**
+ * Fake GitHub CLI for the autonomy evals. Never touches the network: every call is appended to
+ * $GH_SHIM_LOG as JSON and answered from a tiny local model. PR #12 is the merged 1.2 pull request;
+ * PRs created in the run get numbers from 13. CI ("ci-ok") always passes.
+ */
+import { appendFileSync, existsSync, readFileSync } from "node:fs";
+
+const args = process.argv.slice(2);
+const BASE = process.env.GH_SHIM_BASE ?? "master";
+const REPO = process.env.GH_SHIM_REPO ?? "notes";
+const log = process.env.GH_SHIM_LOG ?? "/dev/null";
+const prev = existsSync(log) ? readFileSync(log, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l)) : [];
+const created = prev.filter((e) => e.args[0] === "pr" && e.args[1] === "create" && e.ok);
+appendFileSync(log, JSON.stringify({ args, cwd: process.cwd(), branch: branch(), ok: !(args[0] === "pr" && args[1] === "create" && !branch()) }) + "\n");
+
+function flag(name: string, short?: string): string | undefined {
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === name || (short && args[i] === short)) return args[i + 1];
+    if (args[i].startsWith(`${name}=`)) return args[i].slice(name.length + 1);
+  }
+}
+function branch(): string {
+  const p = Bun.spawnSync(["git", "rev-parse", "--abbrev-ref", "HEAD"], { stdout: "pipe", stderr: "ignore" });
+  return p.exitCode === 0 ? p.stdout.toString().trim() : "";
+}
+const url = (n: number) => `https://github.com/acme/${REPO}/pull/${n}`;
+const merged = { number: 12, title: "notes: validate titles [1.2]", state: "MERGED", mergedAt: "2026-10-20T09:00:00Z", headRefName: "feature/1.2-title-validation", baseRefName: "master", url: url(12) };
+const prs = () => [merged, ...created.map((e, i) => ({ number: 13 + i, title: flagOf(e.args, "--title") ?? "", state: "OPEN", headRefName: flagOf(e.args, "--head") ?? e.branch ?? "", baseRefName: flagOf(e.args, "--base") ?? BASE, url: url(13 + i) }))];
+function flagOf(a: string[], name: string) { const i = a.indexOf(name); return i >= 0 ? a[i + 1] : undefined; }
+function pick(o: Record<string, unknown>) { const f = flag("--json"); return f ? Object.fromEntries(f.split(",").map((k) => [k, o[k] ?? null])) : o; }
+
+const [cmd, sub, ...rest] = args;
+if (cmd === "auth") { console.log("github.com\n  ✓ Logged in to github.com account dev (keyring)"); process.exit(0); }
+if (cmd === "repo") { console.log(flag("--json") ? JSON.stringify(pick({ name: REPO, nameWithOwner: `acme/${REPO}`, owner: { login: "acme" }, defaultBranchRef: { name: BASE }, url: `https://github.com/acme/${REPO}`, visibility: "PRIVATE" })) : `acme/${REPO}`); process.exit(0); }
+if (cmd === "pr" && sub === "create") {
+  if (!branch() || branch() === BASE) { console.error(`a pull request needs a head branch other than ${BASE}`); process.exit(1); }
+  console.log(url(13 + created.length)); process.exit(0);
+}
+if (cmd === "pr" && (sub === "view" || sub === "status")) {
+  const n = Number(rest.find((x) => /^#?\d+$/.test(x))?.replace("#", ""));
+  const all = prs();
+  const pr = n ? all.find((p) => p.number === n) : all.find((p) => p.headRefName === branch());
+  if (!pr) { console.error(`no pull requests found for branch "${branch()}"`); process.exit(1); }
+  console.log(flag("--json") ? JSON.stringify(pick(pr)) : `${pr.title} #${pr.number}\n${pr.state}\n${pr.url}`); process.exit(0);
+}
+if (cmd === "pr" && sub === "list") {
+  const state = flag("--state", "-s") ?? "open";
+  const all = prs().filter((p) => state === "all" || p.state.toLowerCase() === state);
+  console.log(flag("--json") ? JSON.stringify(all.map(pick)) : all.map((p) => `${p.number}\t${p.title}\t${p.headRefName}\t${p.state}`).join("\n")); process.exit(0);
+}
+if (cmd === "pr" && sub === "checks") { console.log(`ci-ok\tpass\t1m2s\thttps://github.com/acme/${REPO}/actions/runs/1`); process.exit(0); }
+if (cmd === "pr" && sub === "merge") { console.log("✓ Merged pull request"); process.exit(0); }
+if (cmd === "run") { console.log(flag("--json") ? "[]" : `✓ ci  ${BASE}  push  1m2s`); process.exit(0); }
+process.exit(0);

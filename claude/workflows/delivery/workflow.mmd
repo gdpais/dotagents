@@ -18,7 +18,8 @@ flowchart TD
     QG --> DOD{Definition of Done}
     DOD -- fail --> S3
     DOD -- pass, more slices --> S3
-    DOD -- pass --> S4["4 Verify - classify_change.ts"]
+    DOD -- pass --> SHIP["Ship: push feature branch + open PR + Auto-fix - autonomy policy (v3), else ask"]
+    SHIP --> S4["4 Verify - classify_change.ts"]
     S4 --> RV[defect-first-review - always]
     S4 -. security signal .-> SEC["security-review + scan_secrets.ts"]
     S4 -. perf signal .-> PERF["performance-review + bench_stats.ts"]
@@ -31,6 +32,10 @@ flowchart TD
     MIG --> MG
     MG -- P0/P1 or regression --> S3
     MG -- pass --> MERGE[Merge - human]
+    MERGE --> CLEAN["Clean up: fetch --prune, remove worktree, branch -d - autonomy policy"]
+    CLEAN --> NEXT{"Next backlog item with merged dependencies?"}
+    NEXT -- yes, up to maxItems --> S3
+    NEXT -- needs a decision --> Q1
     MERGE --> S5["5 Release - release_plan.ts + engineering:deploy-checklist"]
     S5 --> RG{"Release gate: rollout, rollback trigger, baselines"}
     RG -- go - human --> DEPLOY[Tag and deploy - human-authorized]
