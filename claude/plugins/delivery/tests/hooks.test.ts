@@ -49,6 +49,13 @@ test("bash guard classifies commits and outward actions", () => {
   expect(classifyCommand("npm publish --access public").irreversible).toBe("package publish");
   expect(classifyCommand("kubectl apply -f k8s/").irreversible).toBe("cluster change");
   expect(classifyCommand("git status && bun test").irreversible).toBeNull();
+  // Quoted arguments and heredoc bodies are text, not commands (Heartbeat asked on these).
+  expect(classifyCommand("grep -n -E 'EXTRA_VALUES|helm upgrade|build' scripts/kind.sh | head -30").irreversible).toBeNull();
+  expect(classifyCommand(`git commit -q -F - <<'EOF'\nfeat: deploy with helm upgrade, then git push\nEOF\ngit log --oneline -3`)).toEqual({ commit: true, irreversible: null });
+  expect(classifyCommand(`git commit -q -F - <<'EOF'\nmsg\nEOF\ngit push -u origin feature/x`).irreversible).toBe("git push");
+  expect(classifyCommand(`git commit -m "ship it" && git push`).irreversible).toBe("git push");
+  expect(classifyCommand(`bash -c "git push origin main"`).irreversible).toBe("git push");
+  expect(classifyCommand(`sh <<'EOF'\ngit push origin main\nEOF`).irreversible).toBe("git push");
 });
 
 // ------------------------------------------------------------------ repos
