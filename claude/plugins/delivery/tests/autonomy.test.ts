@@ -124,6 +124,7 @@ test("session context: adds the policy at startup, silent on resume and without 
   expect(ctx).toContain("standing authorization");
   expect(ctx).toContain("against master");
   expect(ctx).toContain("TODO.md");
+  expect(ctx).toMatch(/run `bun "\/[^"]+\/skills\/delivery-lifecycle\/scripts\/cleanup_merged\.ts" -C/);
   expect(ctx).toContain("Still stop and ask");
   expect(hook(CONTEXT, { cwd: dir, source: "resume" }).out).toBe("");
 });

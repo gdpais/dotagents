@@ -27,6 +27,7 @@ If the request is genuinely ambiguous, ask one short question; otherwise proceed
 ```bash
 bun scripts/preflight.ts -C <repo> [--base <branch>]   # classify + quality + secrets + CI audit, ~15 lines
 bun scripts/release_plan.ts -C <repo> [--format md]    # next semver + changelog from Conventional Commits
+bun scripts/cleanup_merged.ts -C <repo> [--dry-run] [BRANCH...]   # after merges: fetch --prune, fast-forward base, remove merged worktrees and branches
 ```
 
 `preflight` lists `reviews` when the diff needs judgment: security → `security-review`, performance → `performance-review`, migrations → `engineering:deploy-checklist`, CI files → `ci-cd-pipeline`. Run only those, plus `defect-first-review` for anything that will merge. Projects tune paths and checks in `.claude/delivery.json` (`hotPaths`, `securityPaths`, `ignore`, `preflight.run`, `stopGate`, `autonomy`).
@@ -45,7 +46,7 @@ Each line is `pass`, `fail`, `n/a (why)` or `not verified (why)`; a check you di
 When `.claude/delivery.json` has an `autonomy` block, the user has approved these steps once; the policy is added to the session at start. Then, without stopping to offer each step:
 
 1. **Ship** a finished slice: preflight passes → commit → merge the base branch in → push the branch (only names in `autonomy.push`) → open the PR (`openPr`) → turn on PR monitoring / Auto-fix when the host offers it (`autoFix`).
-2. **Clean up** when told or shown that a PR merged (`cleanupMerged`): `git fetch --prune`, update the base branch, `git worktree remove`, `git branch -d`.
+2. **Clean up** when told or shown that a PR merged (`cleanupMerged`): run `cleanup_merged.ts` once from the main checkout and relay its lines; don't repeat its git steps by hand. It deletes only branches contained in the remote base (`git branch -d`), and keeps dirty worktrees and squash-merged or closed branches, giving the reason for each; deleting those needs the user.
 3. **Continue** (`continue.backlog`, `maxItems`): start the next backlog item whose dependencies are merged. Skip items that need a decision.
 
 Stop for real decisions only, and put every question in one message: merge, tag, release, deploy, pushing the base branch, force push, an ADR, cost, an open question, missing access. While blocked on the user, keep doing unblocked work. "Hold" or "don't push" from the user wins over the policy.

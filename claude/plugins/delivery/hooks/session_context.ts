@@ -5,7 +5,10 @@
  * Silent (no output, no tokens) without a policy, outside a git repository, and on resume
  * (the context from the session's start is already in the conversation).
  */
+import { join } from "node:path";
 import { loadConfig, parseAutonomy, policyContext } from "./autonomy";
+
+const CLEANUP = join(import.meta.dir, "..", "skills", "delivery-lifecycle", "scripts", "cleanup_merged.ts");
 
 const git = (args: string[], cwd: string) => {
   const p = Bun.spawnSync(["git", ...args], { cwd, stdout: "pipe", stderr: "ignore" });
@@ -29,7 +32,7 @@ export async function main(): Promise<number> {
   if (git(["rev-parse", "--is-inside-work-tree"], cwd) !== "true") return 0;
   const policy = parseAutonomy(loadConfig(cwd));
   if (!policy || !policy.push.length) return 0;
-  console.log(JSON.stringify({ hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: policyContext(policy, baseBranch(cwd, policy.base)) } }));
+  console.log(JSON.stringify({ hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: policyContext(policy, baseBranch(cwd, policy.base), CLEANUP) } }));
   return 0;
 }
 
