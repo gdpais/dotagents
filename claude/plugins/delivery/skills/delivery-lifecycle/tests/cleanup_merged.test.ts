@@ -9,15 +9,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { cleanupMerged, parseWorktrees, remoteHeads, render, within, type Cleanup } from "../scripts/cleanup_merged";
 
-Object.assign(process.env, {
+// Passed explicitly: Bun.spawnSync doesn't see process.env changes, and CI runners have no git identity.
+const GIT_ENV = {
+  ...process.env,
   GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.invalid",
   GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.invalid",
   GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null",
-});
+};
 
 let root: string, origin: string, repo: string, other: string;
 const sh = (cwd: string, ...args: string[]) => {
-  const r = Bun.spawnSync(["git", ...args], { cwd });
+  const r = Bun.spawnSync(["git", ...args], { cwd, env: GIT_ENV });
   if (r.exitCode !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr}`);
   return r.stdout.toString().trim();
 };
@@ -26,7 +28,7 @@ const commit = (cwd: string, msg: string) => {
   sh(cwd, "add", ".");
   sh(cwd, "commit", "-q", "-m", msg);
 };
-const has = (b: string) => Bun.spawnSync(["git", "rev-parse", "--verify", "--quiet", `refs/heads/${b}`], { cwd: repo }).exitCode === 0;
+const has = (b: string) => Bun.spawnSync(["git", "rev-parse", "--verify", "--quiet", `refs/heads/${b}`], { cwd: repo, env: GIT_ENV }).exitCode === 0;
 
 /** A feature branch pushed from `repo` with its own commit. */
 const pushBranch = (b: string, upstream = "origin") => {
