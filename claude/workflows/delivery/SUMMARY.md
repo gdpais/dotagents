@@ -8,7 +8,7 @@
 
 | Skill | Company role | Scripts (bun, tested) |
 |---|---|---|
-| `delivery-lifecycle` | Engineering manager: routing, merge and release gates, approvals | `preflight.ts` (classify + quality + secrets + CI audit in one call), `release_plan.ts` (semver bump and changelog); libraries `classify_change.ts`, `quality_gate.ts`, `scan_secrets.ts` |
+| `delivery-lifecycle` | Engineering manager: routing, merge and release gates, approvals | `preflight.ts` (classify + quality + secrets + CI audit in one call), `release_plan.ts` (semver bump and changelog), `cleanup_merged.ts` (post-merge cleanup); libraries `classify_change.ts`, `quality_gate.ts`, `scan_secrets.ts` |
 | `feature-planning` | Product + tech lead: spec, testable ACs, slices, Definition of Ready | — |
 | `performance-review` | Performance engineering: budgets, base vs head on p90/p95, profiling | `bench_stats.ts` |
 | `ci-cd-pipeline` | Platform / DevOps: pipeline design and audit | `audit_ci.ts` |

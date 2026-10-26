@@ -48,5 +48,5 @@ What it does without being asked: when Claude finishes a turn in which it edited
                 "continue": { "backlog": "TODO.md", "maxItems": 3 }, "localClusters": ["kind-*", "minikube"] } }
 ```
 
-With it, the policy is added to each new session, pushes of matching branches and kubectl/helm against the listed local clusters stop asking, and the Stop hook nudges once when finished work isn't pushed or has no PR, unless the user said to hold. Merges, tags, releases, deploys, pushes to the base branch and force pushes still ask. Without the block, behaviour is v2.3's.
+With it, the policy is added to each new session, pushes of matching branches and kubectl/helm against the listed local clusters stop asking, and the Stop hook nudges once when finished work isn't pushed or has no PR, unless the user said to hold. Merges, tags, releases, deploys, pushes to the base branch and force pushes still ask. Without the block, behaviour is v2.3's. With `cleanupMerged`, cleanup after a merge is one call to `cleanup_merged.ts` (fetch with prune, fast-forward the base, remove clean worktrees of merged branches, `git branch -d`); it keeps anything unmerged or dirty and says why.
 

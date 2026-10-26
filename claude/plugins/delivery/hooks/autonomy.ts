@@ -144,14 +144,19 @@ export function explicitContext(segment: string): string | null {
   return m ? m[1].replace(/^["']|["']$/g, "") : null;
 }
 
-/** Standing-authorization text added to the session context when the policy is on. */
-export function policyContext(p: Autonomy, base: string): string {
+/**
+ * Standing-authorization text added to the session context when the policy is on.
+ * `cleanupScript` is the absolute path of cleanup_merged.ts; without it the cleanup steps are spelled out.
+ */
+export function policyContext(p: Autonomy, base: string, cleanupScript?: string): string {
   const lines = [
     "Delivery autonomy: the user approved this policy in .claude/delivery.json. It is standing authorization; don't ask again for these steps.",
     `- Ship without stopping to offer it: when the checks pass, commit (Conventional Commits), push branches matching ${p.push.join(", ")}${p.openPr ? `, and open the pull request against ${base} (follow CONTRIBUTING.md or the PR template)` : ""}, in the same turn. Work on a new feature branch, never directly on ${base}.`,
   ];
   if (p.autoFix) lines.push("- After opening a PR, turn on PR monitoring / Auto-fix when the host offers it.");
-  if (p.cleanupMerged) lines.push(`- When the user says a PR is merged (or you see it is): \`git fetch --prune\`, update ${base}, remove that branch's worktree and delete its local branch with \`git branch -d\` (never -D).`);
+  if (p.cleanupMerged) lines.push(cleanupScript
+    ? `- When the user says a PR is merged (or you see it is): run \`bun "${cleanupScript}" -C <main checkout>\` once and relay its lines. It fetches with prune, fast-forwards ${base}, removes the clean worktrees of merged branches and deletes them with \`git branch -d\`; anything unmerged or dirty is kept with the reason. Don't redo these steps by hand.`
+    : `- When the user says a PR is merged (or you see it is): \`git fetch --prune\`, update ${base}, remove that branch's worktree and delete its local branch with \`git branch -d\` (never -D).`);
   if (p.continue) lines.push(`- Then continue: start the next item in ${p.continue.backlog} whose dependencies are done (merged), up to ${p.continue.maxItems} items per request, and ship each the same way. Skip items that need a decision.`);
   if (p.localClusters.length) lines.push(`- kubectl/helm against local clusters (${p.localClusters.join(", ")}) needs no ask.`);
   lines.push(
