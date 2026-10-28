@@ -1,0 +1,1225 @@
+{
+ "prices": {
+  "per_mtok": {
+   "cache_write_1h": 7.999999999999995,
+   "cache_read": 0.20000000000000162,
+   "output": 19.999999999999925
+  },
+  "p": [
+   0.000007999999999999995,
+   2.0000000000000163e-7,
+   0.000019999999999999924
+  ],
+  "n": 135,
+  "medianRelErr": 3.8359636929010804e-16,
+  "maxRelErr": 1.3571944048677507e-15
+ },
+ "estimator": {
+  "n": 135,
+  "medianRelErr": 0.01248281005787564,
+  "p90RelErr": 0.03191903306609151
+ },
+ "arms": {
+  "engineering-only": {
+   "families": {
+    "incident": {
+     "n": 66,
+     "ok": 25,
+     "intended": 0,
+     "intended_n": 0,
+     "wrong": [
+      "in2→anthropic-skills:docs"
+     ],
+     "misses": 19,
+     "missable": 33,
+     "false_triggers": [],
+     "neg_n": 12,
+     "byKind": {
+      "custom": {
+       "n": 27,
+       "ok": 3,
+       "intended": 0
+      },
+      "eng-fair": {
+       "n": 21,
+       "ok": 9,
+       "intended": 0
+      },
+      "ambiguous": {
+       "n": 6,
+       "ok": 2,
+       "intended": 0
+      },
+      "negative": {
+       "n": 12,
+       "ok": 11,
+       "intended": 0
+      }
+     },
+     "eng_fair": {
+      "n": 30,
+      "fired": 14
+     }
+    },
+    "review": {
+     "n": 66,
+     "ok": 37,
+     "intended": 6,
+     "intended_n": 3,
+     "wrong": [],
+     "misses": 29,
+     "missable": 48,
+     "false_triggers": [],
+     "neg_n": 12,
+     "byKind": {
+      "custom": {
+       "n": 24,
+       "ok": 6,
+       "intended": 0
+      },
+      "eng-fair": {
+       "n": 18,
+       "ok": 7,
+       "intended": 0
+      },
+      "ambiguous": {
+       "n": 12,
+       "ok": 12,
+       "intended": 6
+      },
+      "negative": {
+       "n": 12,
+       "ok": 12,
+       "intended": 0
+      }
+     },
+     "eng_fair": {
+      "n": 54,
+      "fired": 2
+     }
+    }
+   },
+   "picks": {
+    "engineering:incident-response": 14,
+    "none": 94,
+    "code-review": 9,
+    "delivery:delivery-lifecycle": 3,
+    "delivery:performance-review": 3,
+    "engineering:tech-debt": 3,
+    "engineering:documentation": 1,
+    "engineering:code-review": 2,
+    "security-review": 2,
+    "anthropic-skills:docs": 1
+   },
+   "cost": 20.387310799999995,
+   "cost_estimated": 4.040121599999997,
+   "runs": 132,
+   "init_problems": 0,
+   "ends": {
+    "skill": 38,
+    "answered": 89,
+    "max_turns": 5
+   }
+  },
+  "all": {
+   "families": {
+    "incident": {
+     "n": 66,
+     "ok": 63,
+     "intended": 50,
+     "intended_n": 54,
+     "wrong": [],
+     "misses": 3,
+     "missable": 54,
+     "false_triggers": [],
+     "neg_n": 12,
+     "byKind": {
+      "custom": {
+       "n": 27,
+       "ok": 26,
+       "intended": 26
+      },
+      "eng-fair": {
+       "n": 21,
+       "ok": 19,
+       "intended": 18
+      },
+      "ambiguous": {
+       "n": 6,
+       "ok": 6,
+       "intended": 6
+      },
+      "negative": {
+       "n": 12,
+       "ok": 12,
+       "intended": 0
+      }
+     },
+     "eng_fair": {
+      "n": 30,
+      "fired": 0
+     }
+    },
+    "review": {
+     "n": 66,
+     "ok": 53,
+     "intended": 32,
+     "intended_n": 48,
+     "wrong": [],
+     "misses": 13,
+     "missable": 48,
+     "false_triggers": [],
+     "neg_n": 12,
+     "byKind": {
+      "custom": {
+       "n": 24,
+       "ok": 18,
+       "intended": 15
+      },
+      "eng-fair": {
+       "n": 18,
+       "ok": 12,
+       "intended": 12
+      },
+      "ambiguous": {
+       "n": 12,
+       "ok": 11,
+       "intended": 5
+      },
+      "negative": {
+       "n": 12,
+       "ok": 12,
+       "intended": 0
+      }
+     },
+     "eng_fair": {
+      "n": 54,
+      "fired": 0
+     }
+    }
+   },
+   "picks": {
+    "sre:sre-incident-lifecycle": 14,
+    "sre:incident-live-report": 13,
+    "sre:rca-investigation": 10,
+    "sre:incident-postmortem": 5,
+    "sre:tech-email": 9,
+    "none": 41,
+    "delivery:defect-first-review": 27,
+    "security-review": 3,
+    "delivery:delivery-lifecycle": 2,
+    "delivery:performance-review": 3,
+    "engineering:tech-debt": 3,
+    "engineering:documentation": 2
+   },
+   "cost": 18.485307399999993,
+   "cost_estimated": 10.798760799999995,
+   "runs": 132,
+   "init_problems": 0,
+   "ends": {
+    "skill": 91,
+    "answered": 35,
+    "max_turns": 6
+   }
+  }
+ },
+ "consistency": {
+  "engineering-only": {
+   "prompts": 44,
+   "unanimous": 33
+  },
+  "all": {
+   "prompts": 44,
+   "unanimous": 33
+  }
+ },
+ "table": [
+  {
+   "id": "i01",
+   "family": "incident",
+   "kind": "eng-fair",
+   "intended": [
+    "sre:sre-incident-lifecycle"
+   ],
+   "acceptable": [
+    "sre:sre-incident-lifecycle",
+    "sre:incident-live-report",
+    "engineering:incident-response"
+   ],
+   "engineering-only": [
+    "none",
+    "engineering:incident-response",
+    "engineering:incident-response"
+   ],
+   "all": [
+    "sre:sre-incident-lifecycle",
+    "sre:incident-live-report",
+    "sre:sre-incident-lifecycle"
+   ]
+  },
+  {
+   "id": "i02",
+   "family": "incident",
+   "kind": "eng-fair",
+   "intended": [
+    "sre:sre-incident-lifecycle"
+   ],
+   "acceptable": [
+    "sre:sre-incident-lifecycle",
+    "engineering:incident-response"
+   ],
+   "engineering-only": [
+    "engineering:incident-response",
+    "engineering:incident-response",
+    "engineering:incident-response"
+   ],
+   "all": [
+    "sre:sre-incident-lifecycle",
+    "sre:sre-incident-lifecycle",
+    "sre:sre-incident-lifecycle"
+   ]
+  },
+  {
+   "id": "i03",
+   "family": "incident",
+   "kind": "eng-fair",
+   "intended": [
+    "sre:sre-incident-lifecycle"
+   ],
+   "acceptable": [
+    "sre:sre-incident-lifecycle",
+    "engineering:incident-response"
+   ],
+   "engineering-only": [
+    "engineering:incident-response",
+    "engineering:incident-response",
+    "engineering:incident-response"
+   ],
+   "all": [
+    "sre:sre-incident-lifecycle",
+    "sre:sre-incident-lifecycle",
+    "sre:sre-incident-lifecycle"
+   ]
+  },
+  {
+   "id": "i04",
+   "family": "incident",
+   "kind": "custom",
+   "intended": [
+    "sre:sre-incident-lifecycle"
+   ],
+   "acceptable": [
+    "sre:sre-incident-lifecycle",
+    "sre:incident-live-report",
+    "engineering:incident-response"
+   ],
+   "engineering-only": [
+    "none",
+    "none",
+    "none"
+   ],
+   "all": [
+    "sre:sre-incident-lifecycle",
+    "sre:sre-incident-lifecycle",
+    "sre:sre-incident-lifecycle"
+   ]
+  },
+  {
+   "id": "i05",
+   "family": "incident",
+   "kind": "custom",
+   "intended": [
+    "sre:incident-live-report"
+   ],
+   "acceptable": [
+    "sre:incident-live-report",
+    "sre:sre-incident-lifecycle",
+    "engineering:incident-response"
+   ],
+   "engineering-only": [
+    "engineering:incident-response",
+    "engineering:incident-response",
+    "engineering:incident-response"
+   ],
+   "all": [
+    "sre:incident-live-report",
+    "sre:incident-live-report",
+    "sre:incident-live-report"
+   ]
+  },
+  {
+   "id": "i06",
+   "family": "incident",
+   "kind": "eng-fair",
+   "intended": [
+    "sre:incident-live-report"
+   ],
+   "acceptable": [
+    "sre:incident-live-report",
+    "sre:sre-incident-lifecycle",
+    "engineering:incident-response"
+   ],
+   "engineering-only": [
+    "none",
+    "none",
+    "none"
+   ],
+   "all": [
+    "sre:incident-live-report",
+    "sre:incident-live-report",
+    "sre:incident-live-report"
+   ]
+  },
+  {
+   "id": "i07",
+   "family": "incident",
+   "kind": "custom",
+   "intended": [
+    "sre:incident-live-report"
+   ],
+   "acceptable": [
+    "sre:incident-live-report",
+    "sre:sre-incident-lifecycle"
+   ],
+   "engineering-only": [
+    "none",
+    "none",
+    "none"
+   ],
+   "all": [
+    "sre:incident-live-report",
+    "sre:incident-live-report",
+    "sre:incident-live-report"
+   ]
+  },
+  {
+   "id": "i08",
+   "family": "incident",
+   "kind": "custom",
+   "intended": [
+    "sre:rca-investigation"
+   ],
+   "acceptable": [
+    "sre:rca-investigation"
+   ],
+   "engineering-only": [
+    "none",
+    "none",
+    "none"
+   ],
+   "all": [
+    "sre:rca-investigation",
+    "sre:rca-investigation",
+    "sre:rca-investigation"
+   ]
+  },
+  {
+   "id": "i09",
+   "family": "incident",
+   "kind": "custom",
+   "intended": [
+    "sre:rca-investigation"
+   ],
+   "acceptable": [
+    "sre:rca-investigation"
+   ],
+   "engineering-only": [
+    "none",
+    "none",
+    "none"
+   ],
+   "all": [
+    "sre:rca-investigation",
+    "none",
+    "sre:rca-investigation"
+   ]
+  },
+  {
+   "id": "i10",
+   "family": "incident",
+   "kind": "custom",
+   "intended": [
+    "sre:rca-investigation"
+   ],
+   "acceptable": [
+    "sre:rca-investigation"
+   ],
+   "engineering-only": [
+    "none",
+    "none",
+    "none"
+   ],
+   "all": [
+    "sre:rca-investigation",
+    "sre:rca-investigation",
+    "sre:rca-investigation"
+   ]
+  },
+  {
+   "id": "i11",
+   "family": "incident",
+   "kind": "eng-fair",
+   "intended": [
+    "sre:rca-investigation"
+   ],
+   "acceptable": [
+    "sre:rca-investigation",
+    "engineering:debug"
+   ],
+   "engineering-only": [
+    "none",
+    "none",
+    "none"
+   ],
+   "all": [
+    "sre:rca-investigation",
+    "none",
+    "sre:rca-investigation"
+   ]
+  },
+  {
+   "id": "i12",
+   "family": "incident",
+   "kind": "eng-fair",
+   "intended": [
+    "sre:incident-postmortem"
+   ],
+   "acceptable": [
+    "sre:incident-postmortem",
+    "engineering:incident-response"
+   ],
+   "engineering-only": [
+    "none",
+    "none",
+    "none"
+   ],
+   "all": [
+    "sre:incident-postmortem",
+    "sre:incident-postmortem",
+    "sre:incident-postmortem"
+   ]
+  },
+  {
+   "id": "i13",
+   "family": "incident",
+   "kind": "eng-fair",
+   "intended": [
+    "sre:incident-postmortem"
+   ],
+   "acceptable": [
+    "sre:incident-postmortem",
+    "engineering:incident-response"
+   ],
+   "engineering-only": [
+    "engineering:incident-response",
+    "none",
+    "none"
+   ],
+   "all": [
+    "sre:incident-postmortem",
+    "none",
+    "sre:incident-postmortem"
+   ]
+  },
+  {
+   "id": "i14",
+   "family": "incident",
+   "kind": "custom",
+   "intended": [
+    "sre:tech-email"
+   ],
+   "acceptable": [
+    "sre:tech-email"
+   ],
+   "engineering-only": [
+    "none",
+    "none",
+    "none"
+   ],
+   "all": [
+    "sre:tech-email",
+    "sre:tech-email",
+    "sre:tech-email"
+   ]
+  },
+  {
+   "id": "i15",
+   "family": "incident",
+   "kind": "custom",
+   "intended": [
+    "sre:tech-email"
+   ],
+   "acceptable": [
+    "sre:tech-email"
+   ],
+   "engineering-only": [
+    "none",
+    "none",
+    "none"
+   ],
+   "all": [
+    "sre:tech-email",
+    "sre:tech-email",
+    "sre:tech-email"
+   ]
+  },
+  {
+   "id": "i16",
+   "family": "incident",
+   "kind": "custom",
+   "intended": [
+    "sre:tech-email"
+   ],
+   "acceptable": [
+    "sre:tech-email"
+   ],
+   "engineering-only": [
+    "none",
+    "none",
+    "none"
+   ],
+   "all": [
+    "sre:tech-email",
+    "sre:tech-email",
+    "sre:tech-email"
+   ]
+  },
+  {
+   "id": "i17",
+   "family": "incident",
+   "kind": "ambiguous",
+   "intended": [
+    "sre:incident-live-report"
+   ],
+   "acceptable": [
+    "sre:incident-live-report",
+    "sre:incident-postmortem",
+    "sre:sre-incident-lifecycle",
+    "engineering:incident-response"
+   ],
+   "engineering-only": [
+    "engineering:incident-response",
+    "none",
+    "none"
+   ],
+   "all": [
+    "sre:incident-live-report",
+    "sre:incident-live-report",
+    "sre:incident-live-report"
+   ]
+  },
+  {
+   "id": "i18",
+   "family": "incident",
+   "kind": "ambiguous",
+   "intended": [
+    "sre:sre-incident-lifecycle"
+   ],
+   "acceptable": [
+    "sre:sre-incident-lifecycle",
+    "sre:rca-investigation",
+    "sre:incident-live-report",
+    "engineering:incident-response",
+    "engineering:debug"
+   ],
+   "engineering-only": [
+    "none",
+    "engineering:incident-response",
+    "none"
+   ],
+   "all": [
+    "sre:sre-incident-lifecycle",
+    "sre:sre-incident-lifecycle",
+    "sre:sre-incident-lifecycle"
+   ]
+  },
+  {
+   "id": "in1",
+   "family": "incident",
+   "kind": "negative",
+   "intended": [],
+   "acceptable": [
+    "none",
+    "engineering:debug"
+   ],
+   "engineering-only": [
+    "none",
+    "none",
+    "none"
+   ],
+   "all": [
+    "none",
+    "none",
+    "none"
+   ]
+  },
+  {
+   "id": "in2",
+   "family": "incident",
+   "kind": "negative",
+   "intended": [],
+   "acceptable": [
+    "none",
+    "engineering:documentation"
+   ],
+   "engineering-only": [
+    "none",
+    "engineering:documentation",
+    "anthropic-skills:docs"
+   ],
+   "all": [
+    "none",
+    "engineering:documentation",
+    "engineering:documentation"
+   ]
+  },
+  {
+   "id": "in3",
+   "family": "incident",
+   "kind": "negative",
+   "intended": [],
+   "acceptable": [
+    "none"
+   ],
+   "engineering-only": [
+    "none",
+    "none",
+    "none"
+   ],
+   "all": [
+    "none",
+    "none",
+    "none"
+   ]
+  },
+  {
+   "id": "in4",
+   "family": "incident",
+   "kind": "negative",
+   "intended": [],
+   "acceptable": [
+    "none"
+   ],
+   "engineering-only": [
+    "none",
+    "none",
+    "none"
+   ],
+   "all": [
+    "none",
+    "none",
+    "none"
+   ]
+  },
+  {
+   "id": "r01",
+   "family": "review",
+   "kind": "eng-fair",
+   "intended": [
+    "delivery:defect-first-review"
+   ],
+   "acceptable": [
+    "delivery:defect-first-review",
+    "code-review",
+    "engineering:code-review"
+   ],
+   "engineering-only": [
+    "code-review",
+    "code-review",
+    "none"
+   ],
+   "all": [
+    "delivery:defect-first-review",
+    "delivery:defect-first-review",
+    "delivery:defect-first-review"
+   ]
+  },
+  {
+   "id": "r02",
+   "family": "review",
+   "kind": "custom",
+   "intended": [
+    "delivery:defect-first-review"
+   ],
+   "acceptable": [
+    "delivery:defect-first-review",
+    "code-review",
+    "engineering:code-review"
+   ],
+   "engineering-only": [
+    "code-review",
+    "code-review",
+    "none"
+   ],
+   "all": [
+    "delivery:defect-first-review",
+    "delivery:defect-first-review",
+    "delivery:defect-first-review"
+   ]
+  },
+  {
+   "id": "r03",
+   "family": "review",
+   "kind": "eng-fair",
+   "intended": [
+    "delivery:defect-first-review"
+   ],
+   "acceptable": [
+    "delivery:defect-first-review",
+    "code-review",
+    "engineering:code-review",
+    "security-review"
+   ],
+   "engineering-only": [
+    "none",
+    "none",
+    "none"
+   ],
+   "all": [
+    "delivery:defect-first-review",
+    "delivery:defect-first-review",
+    "delivery:defect-first-review"
+   ]
+  },
+  {
+   "id": "r04",
+   "family": "review",
+   "kind": "custom",
+   "intended": [
+    "delivery:defect-first-review"
+   ],
+   "acceptable": [
+    "delivery:defect-first-review",
+    "code-review",
+    "engineering:code-review"
+   ],
+   "engineering-only": [
+    "none",
+    "none",
+    "none"
+   ],
+   "all": [
+    "none",
+    "none",
+    "delivery:defect-first-review"
+   ]
+  },
+  {
+   "id": "r05",
+   "family": "review",
+   "kind": "eng-fair",
+   "intended": [
+    "delivery:defect-first-review"
+   ],
+   "acceptable": [
+    "delivery:defect-first-review",
+    "code-review",
+    "engineering:code-review",
+    "security-review",
+    "delivery:performance-review"
+   ],
+   "engineering-only": [
+    "none",
+    "engineering:code-review",
+    "engineering:code-review"
+   ],
+   "all": [
+    "delivery:defect-first-review",
+    "none",
+    "delivery:defect-first-review"
+   ]
+  },
+  {
+   "id": "r06",
+   "family": "review",
+   "kind": "custom",
+   "intended": [
+    "delivery:defect-first-review"
+   ],
+   "acceptable": [
+    "delivery:defect-first-review",
+    "code-review",
+    "engineering:code-review"
+   ],
+   "engineering-only": [
+    "none",
+    "none",
+    "none"
+   ],
+   "all": [
+    "delivery:defect-first-review",
+    "delivery:defect-first-review",
+    "delivery:defect-first-review"
+   ]
+  },
+  {
+   "id": "r07",
+   "family": "review",
+   "kind": "eng-fair",
+   "intended": [
+    "delivery:defect-first-review"
+   ],
+   "acceptable": [
+    "delivery:defect-first-review",
+    "code-review",
+    "engineering:code-review"
+   ],
+   "engineering-only": [
+    "code-review",
+    "code-review",
+    "code-review"
+   ],
+   "all": [
+    "delivery:defect-first-review",
+    "delivery:defect-first-review",
+    "delivery:defect-first-review"
+   ]
+  },
+  {
+   "id": "r08",
+   "family": "review",
+   "kind": "custom",
+   "intended": [
+    "delivery:defect-first-review"
+   ],
+   "acceptable": [
+    "delivery:defect-first-review",
+    "code-review",
+    "engineering:code-review",
+    "security-review"
+   ],
+   "engineering-only": [
+    "none",
+    "security-review",
+    "security-review"
+   ],
+   "all": [
+    "security-review",
+    "security-review",
+    "security-review"
+   ]
+  },
+  {
+   "id": "r09",
+   "family": "review",
+   "kind": "ambiguous",
+   "intended": [
+    "delivery:delivery-lifecycle",
+    "delivery:defect-first-review"
+   ],
+   "acceptable": [
+    "delivery:defect-first-review",
+    "code-review",
+    "engineering:code-review",
+    "delivery:delivery-lifecycle"
+   ],
+   "engineering-only": [
+    "delivery:delivery-lifecycle",
+    "delivery:delivery-lifecycle",
+    "delivery:delivery-lifecycle"
+   ],
+   "all": [
+    "delivery:delivery-lifecycle",
+    "delivery:delivery-lifecycle",
+    "none"
+   ]
+  },
+  {
+   "id": "r10",
+   "family": "review",
+   "kind": "custom",
+   "intended": [
+    "delivery:defect-first-review"
+   ],
+   "acceptable": [
+    "delivery:defect-first-review",
+    "code-review",
+    "engineering:code-review"
+   ],
+   "engineering-only": [
+    "none",
+    "none",
+    "none"
+   ],
+   "all": [
+    "none",
+    "delivery:defect-first-review",
+    "none"
+   ]
+  },
+  {
+   "id": "r11",
+   "family": "review",
+   "kind": "ambiguous",
+   "intended": [
+    "delivery:performance-review"
+   ],
+   "acceptable": [
+    "delivery:performance-review",
+    "delivery:defect-first-review",
+    "engineering:code-review"
+   ],
+   "engineering-only": [
+    "delivery:performance-review",
+    "delivery:performance-review",
+    "delivery:performance-review"
+   ],
+   "all": [
+    "delivery:performance-review",
+    "delivery:performance-review",
+    "delivery:performance-review"
+   ]
+  },
+  {
+   "id": "r12",
+   "family": "review",
+   "kind": "custom",
+   "intended": [
+    "delivery:defect-first-review"
+   ],
+   "acceptable": [
+    "delivery:defect-first-review",
+    "code-review",
+    "engineering:code-review"
+   ],
+   "engineering-only": [
+    "none",
+    "none",
+    "none"
+   ],
+   "all": [
+    "none",
+    "delivery:defect-first-review",
+    "none"
+   ]
+  },
+  {
+   "id": "r13",
+   "family": "review",
+   "kind": "eng-fair",
+   "intended": [
+    "delivery:defect-first-review"
+   ],
+   "acceptable": [
+    "delivery:defect-first-review",
+    "code-review",
+    "engineering:code-review"
+   ],
+   "engineering-only": [
+    "none",
+    "none",
+    "none"
+   ],
+   "all": [
+    "none",
+    "none",
+    "delivery:defect-first-review"
+   ]
+  },
+  {
+   "id": "r14",
+   "family": "review",
+   "kind": "custom",
+   "intended": [
+    "delivery:defect-first-review"
+   ],
+   "acceptable": [
+    "delivery:defect-first-review",
+    "code-review",
+    "engineering:code-review"
+   ],
+   "engineering-only": [
+    "none",
+    "none",
+    "code-review"
+   ],
+   "all": [
+    "delivery:defect-first-review",
+    "delivery:defect-first-review",
+    "delivery:defect-first-review"
+   ]
+  },
+  {
+   "id": "r15",
+   "family": "review",
+   "kind": "eng-fair",
+   "intended": [
+    "delivery:defect-first-review"
+   ],
+   "acceptable": [
+    "delivery:defect-first-review",
+    "code-review",
+    "engineering:code-review",
+    "security-review"
+   ],
+   "engineering-only": [
+    "none",
+    "none",
+    "none"
+   ],
+   "all": [
+    "none",
+    "none",
+    "none"
+   ]
+  },
+  {
+   "id": "r16",
+   "family": "review",
+   "kind": "custom",
+   "intended": [
+    "delivery:defect-first-review"
+   ],
+   "acceptable": [
+    "delivery:defect-first-review",
+    "code-review",
+    "engineering:code-review"
+   ],
+   "engineering-only": [
+    "none",
+    "code-review",
+    "none"
+   ],
+   "all": [
+    "delivery:defect-first-review",
+    "delivery:defect-first-review",
+    "delivery:defect-first-review"
+   ]
+  },
+  {
+   "id": "r17",
+   "family": "review",
+   "kind": "ambiguous",
+   "intended": [],
+   "acceptable": [
+    "none",
+    "delivery:defect-first-review",
+    "code-review",
+    "engineering:code-review"
+   ],
+   "engineering-only": [
+    "none",
+    "none",
+    "none"
+   ],
+   "all": [
+    "none",
+    "none",
+    "none"
+   ]
+  },
+  {
+   "id": "r18",
+   "family": "review",
+   "kind": "ambiguous",
+   "intended": [],
+   "acceptable": [
+    "none",
+    "engineering:code-review",
+    "code-review",
+    "engineering:tech-debt"
+   ],
+   "engineering-only": [
+    "none",
+    "none",
+    "none"
+   ],
+   "all": [
+    "none",
+    "none",
+    "none"
+   ]
+  },
+  {
+   "id": "rn1",
+   "family": "review",
+   "kind": "negative",
+   "intended": [],
+   "acceptable": [
+    "none",
+    "engineering:debug"
+   ],
+   "engineering-only": [
+    "none",
+    "none",
+    "none"
+   ],
+   "all": [
+    "none",
+    "none",
+    "none"
+   ]
+  },
+  {
+   "id": "rn2",
+   "family": "review",
+   "kind": "negative",
+   "intended": [],
+   "acceptable": [
+    "none",
+    "engineering:tech-debt"
+   ],
+   "engineering-only": [
+    "engineering:tech-debt",
+    "engineering:tech-debt",
+    "engineering:tech-debt"
+   ],
+   "all": [
+    "engineering:tech-debt",
+    "engineering:tech-debt",
+    "engineering:tech-debt"
+   ]
+  },
+  {
+   "id": "rn3",
+   "family": "review",
+   "kind": "negative",
+   "intended": [],
+   "acceptable": [
+    "none",
+    "engineering:testing-strategy"
+   ],
+   "engineering-only": [
+    "none",
+    "none",
+    "none"
+   ],
+   "all": [
+    "none",
+    "none",
+    "none"
+   ]
+  },
+  {
+   "id": "rn4",
+   "family": "review",
+   "kind": "negative",
+   "intended": [],
+   "acceptable": [
+    "none"
+   ],
+   "engineering-only": [
+    "none",
+    "none",
+    "none"
+   ],
+   "all": [
+    "none",
+    "none",
+    "none"
+   ]
+  }
+ ],
+ "models": [
+  "claude-opus-5-5"
+ ],
+ "versions": [
+  "2.1.310"
+ ],
+ "wall_s": 4030.54,
+ "skill_turns": {
+  "1": 128,
+  "2": 1
+ },
+ "chars_per_token": 2.5
+}

@@ -1,0 +1,695 @@
+{
+ "description": "Routing test (stage 1): which skill Claude Code invokes for natural requests when the custom incident and review skills compete with engineering:incident-response, engineering:code-review and the built-in code-review. Labels were written before any run. 'acceptable' lists every pick that serves the request ('none' = no skill); 'intended' is the custom skill the request was written for. Kinds: custom (written for a custom skill), eng-fair (contains an engineering skill's trigger phrase), ambiguous, negative (none of the competing skills should fire).",
+ "competing": {
+  "incident": [
+   "sre:sre-incident-lifecycle",
+   "sre:incident-live-report",
+   "sre:incident-postmortem",
+   "sre:rca-investigation",
+   "sre:tech-email",
+   "engineering:incident-response"
+  ],
+  "review": [
+   "delivery:defect-first-review",
+   "code-review",
+   "engineering:code-review"
+  ]
+ },
+ "custom": [
+  "sre:sre-incident-lifecycle",
+  "sre:incident-live-report",
+  "sre:incident-postmortem",
+  "sre:rca-investigation",
+  "sre:tech-email",
+  "delivery:defect-first-review"
+ ],
+ "prompts": [
+  {
+   "id": "i01",
+   "family": "incident",
+   "kind": "eng-fair",
+   "fixture": "ops",
+   "prompt": "We have an incident. Since about 14:05 Lisbon time the checkout API is returning 5xx: Grafana shows ~12% of POST /api/checkout failing on edge-01 and edge-02 (window 14:05-14:20, still ongoing). checkout-svc v2.31 was deployed at 13:58. The payments provider status page is green. Rui is on call and is checking the DB pool graphs; Marta (DBA) says DB CPU is at 30%. No customer comms have gone out yet. Write the live incident report and a short email to the leadership team in Portuguese (they're in Lisbon). I'm Gabriel, the incident lead.",
+   "intended": [
+    "sre:sre-incident-lifecycle"
+   ],
+   "acceptable": [
+    "sre:sre-incident-lifecycle",
+    "sre:incident-live-report",
+    "engineering:incident-response"
+   ],
+   "note": "iteration-7 eval 0; two artifacts, so the coordinator; 'we have an incident' is also an engineering trigger"
+  },
+  {
+   "id": "i02",
+   "family": "incident",
+   "kind": "eng-fair",
+   "fixture": "ops",
+   "prompt": "prod is down. login returns 502 for everyone since 09:40, pagerduty is going off, nothing deployed today as far as I know. what do we do first?",
+   "intended": [
+    "sre:sre-incident-lifecycle"
+   ],
+   "acceptable": [
+    "sre:sre-incident-lifecycle",
+    "engineering:incident-response"
+   ],
+   "note": ""
+  },
+  {
+   "id": "i03",
+   "family": "incident",
+   "kind": "eng-fair",
+   "fixture": "ops",
+   "prompt": "Alert just fired: orders-api p99 went from 300ms to 4s at 16:12 and the error rate is about 3%. Is this an incident? How bad?",
+   "intended": [
+    "sre:sre-incident-lifecycle"
+   ],
+   "acceptable": [
+    "sre:sre-incident-lifecycle",
+    "engineering:incident-response"
+   ],
+   "note": "severity assessment of an alert"
+  },
+  {
+   "id": "i04",
+   "family": "incident",
+   "kind": "custom",
+   "fixture": "ops",
+   "prompt": "where are we on the checkout incident and what's next? so far: 14:05 5xx start on edge-01/02, 14:20 Rui ruled out the DB pool (CPU 30%), 14:31 we decided to roll back checkout-svc v2.31, rollback is running now.",
+   "intended": [
+    "sre:sre-incident-lifecycle"
+   ],
+   "acceptable": [
+    "sre:sre-incident-lifecycle",
+    "sre:incident-live-report",
+    "engineering:incident-response"
+   ],
+   "note": ""
+  },
+  {
+   "id": "i05",
+   "family": "incident",
+   "kind": "custom",
+   "fixture": "ops",
+   "prompt": "Start an incident report for the payment confirmation failures. What we have: since ~10:12 about 8% of payment confirmations time out at payments-gw, fraud-svc latency is up, the orders DB failed over at 10:05 but Marta says it completed cleanly. Nothing ruled out yet.",
+   "intended": [
+    "sre:incident-live-report"
+   ],
+   "acceptable": [
+    "sre:incident-live-report",
+    "sre:sre-incident-lifecycle",
+    "engineering:incident-response"
+   ],
+   "note": ""
+  },
+  {
+   "id": "i06",
+   "family": "incident",
+   "kind": "eng-fair",
+   "fixture": "ops",
+   "prompt": "Give me a short status update I can post in #inc-checkout: rollback of checkout-svc to v2.30 finished at 14:41, 5xx down from 12% to 2%, edge-02 still a bit elevated, next update 15:15.",
+   "intended": [
+    "sre:incident-live-report"
+   ],
+   "acceptable": [
+    "sre:incident-live-report",
+    "sre:sre-incident-lifecycle",
+    "engineering:incident-response"
+   ],
+   "note": "'status update mid-incident' is an engineering trigger"
+  },
+  {
+   "id": "i07",
+   "family": "incident",
+   "kind": "custom",
+   "fixture": "ops",
+   "prompt": "Update the incident doc in inputs/inc-live.md: Rui confirmed the DB pool is fine, we're now looking at the fraud-svc timeout config that changed on Monday.",
+   "intended": [
+    "sre:incident-live-report"
+   ],
+   "acceptable": [
+    "sre:incident-live-report",
+    "sre:sre-incident-lifecycle"
+   ],
+   "note": ""
+  },
+  {
+   "id": "i08",
+   "family": "incident",
+   "kind": "custom",
+   "fixture": "ops",
+   "prompt": "Checkout was failing on 30 Sep for ~40 minutes around lunchtime. The evidence is in inputs/: the HAProxy log from edge-01, a Grafana export, the change log and the on-call notes. Find the root cause and tell me how confident we can be. Ana thinks it was the CDN cert rotation.",
+   "intended": [
+    "sre:rca-investigation"
+   ],
+   "acceptable": [
+    "sre:rca-investigation"
+   ],
+   "note": "iteration-3 rca-checkout-503s"
+  },
+  {
+   "id": "i09",
+   "family": "incident",
+   "kind": "custom",
+   "fixture": "ops",
+   "prompt": "Search was slow and timing out on 1 Oct late morning. Evidence is in inputs/search/ (search-svc log, Elasticsearch node metrics, Slack notes) and the change log is inputs/changes.md. Tiago is sure it was the reco v3.4 deploy. What was the root cause, how sure are we, and what fixed it?",
+   "intended": [
+    "sre:rca-investigation"
+   ],
+   "acceptable": [
+    "sre:rca-investigation"
+   ],
+   "note": "iteration-4 rca-no-change-search"
+  },
+  {
+   "id": "i10",
+   "family": "incident",
+   "kind": "custom",
+   "fixture": "ops",
+   "prompt": "Bruno wrote the RCA for INC-2219 (inputs/inc-2219/rca-bruno.md). He says the DB failover caused it. Does that hold up against what we have in that folder?",
+   "intended": [
+    "sre:rca-investigation"
+   ],
+   "acceptable": [
+    "sre:rca-investigation"
+   ],
+   "note": "check whether an existing RCA holds up"
+  },
+  {
+   "id": "i11",
+   "family": "incident",
+   "kind": "eng-fair",
+   "fixture": "ops",
+   "prompt": "We get bursts of 504s from the API gateway most nights around 02:00, for a week now, and nothing is deployed in that window. Timings: Mon 02:01-02:07, Tue 02:00-02:09, Thu 02:02-02:05. The DB backup job and log rotation both run at 02:00. What's causing it?",
+   "intended": [
+    "sre:rca-investigation"
+   ],
+   "acceptable": [
+    "sre:rca-investigation",
+    "engineering:debug"
+   ],
+   "note": "recurring failure; engineering:debug fits 'behavior diverges, cause not obvious'"
+  },
+  {
+   "id": "i12",
+   "family": "incident",
+   "kind": "eng-fair",
+   "fixture": "ops",
+   "prompt": "INC-2219 is resolved. Write the postmortem. Everything is in inputs/inc-2219/: the incident record (with our SLO), the RCA summary and the Slack notes; the change log is inputs/changes.md. It goes to engineering and leadership for review.",
+   "intended": [
+    "sre:incident-postmortem"
+   ],
+   "acceptable": [
+    "sre:incident-postmortem",
+    "engineering:incident-response"
+   ],
+   "note": "iteration-5 postmortem; 'blameless postmortem after resolution' is an engineering trigger"
+  },
+  {
+   "id": "i13",
+   "family": "incident",
+   "kind": "eng-fair",
+   "fixture": "ops",
+   "prompt": "The checkout outage from Tuesday is over and the fix is deployed. I need the blameless write-up for Friday's review. Timeline: 14:05 errors start, 14:12 alert, 14:20 DB ruled out, 14:31 rollback decided, 14:41 rollback done, 14:55 errors back to baseline. Trigger was checkout-svc v2.31 shipping a DB connection pool of 5.",
+   "intended": [
+    "sre:incident-postmortem"
+   ],
+   "acceptable": [
+    "sre:incident-postmortem",
+    "engineering:incident-response"
+   ],
+   "note": ""
+  },
+  {
+   "id": "i14",
+   "family": "incident",
+   "kind": "custom",
+   "fixture": "ops",
+   "prompt": "Turn these RCA notes into an email for the platform and payments teams: root cause was the fraud-svc client timeout dropped from 2s to 500ms in Monday's config change; payments-gw retried and saturated its pool; fixed by reverting the config at 11:02. Owners: platform for a config guardrail, payments for a retry budget.",
+   "intended": [
+    "sre:tech-email"
+   ],
+   "acceptable": [
+    "sre:tech-email"
+   ],
+   "note": ""
+  },
+  {
+   "id": "i15",
+   "family": "incident",
+   "kind": "custom",
+   "fixture": "ops",
+   "prompt": "Escreve um email para a direção a explicar o incidente de ontem no checkout: 40 minutos de falhas (14:05-14:45), cerca de 12% dos pagamentos falharam, a causa foi o deploy da v2.31 com o pool de ligações mal configurado, já revertido. Próximos passos: validação de configuração no pipeline.",
+   "intended": [
+    "sre:tech-email"
+   ],
+   "acceptable": [
+    "sre:tech-email"
+   ],
+   "note": "PT-PT"
+  },
+  {
+   "id": "i16",
+   "family": "incident",
+   "kind": "custom",
+   "fixture": "ops",
+   "prompt": "Write a heads-up email to the CTO: the orders DB failed over 3 times this week (Mon 10:05, Wed 02:14, Thu 16:40), each under 30s, no customer impact yet, we suspect the storage firmware update. We want approval for a maintenance window on Saturday.",
+   "intended": [
+    "sre:tech-email"
+   ],
+   "acceptable": [
+    "sre:tech-email"
+   ],
+   "note": ""
+  },
+  {
+   "id": "i17",
+   "family": "incident",
+   "kind": "ambiguous",
+   "fixture": "ops",
+   "prompt": "Checkout incident is mitigated: rollback done at 14:41 and errors are back to baseline, but we're keeping an eye on edge-02. Can you write it up?",
+   "intended": [
+    "sre:incident-live-report"
+   ],
+   "acceptable": [
+    "sre:incident-live-report",
+    "sre:incident-postmortem",
+    "sre:sre-incident-lifecycle",
+    "engineering:incident-response"
+   ],
+   "note": "mitigated but still monitored: live report or postmortem"
+  },
+  {
+   "id": "i18",
+   "family": "incident",
+   "kind": "ambiguous",
+   "fixture": "ops",
+   "prompt": "payments failing again like last tuesday?? seeing timeouts from payments-gw in the logs since 10 min ago, ~5% of requests. help",
+   "intended": [
+    "sre:sre-incident-lifecycle"
+   ],
+   "acceptable": [
+    "sre:sre-incident-lifecycle",
+    "sre:rca-investigation",
+    "sre:incident-live-report",
+    "engineering:incident-response",
+    "engineering:debug"
+   ],
+   "note": ""
+  },
+  {
+   "id": "in1",
+   "family": "incident",
+   "kind": "negative",
+   "fixture": "billing-svc",
+   "prompt": "Running the tests gives me this:\n\nTypeError: Cannot read properties of undefined (reading 'rate')\n    at applyDiscount (src/pricing.ts:13:36)\n    at calcTotal (src/pricing.ts:22:14)\n    at <anonymous> (test/pricing.test.ts:5:16)\n\nwhat's wrong?",
+   "intended": [],
+   "acceptable": [
+    "none",
+    "engineering:debug"
+   ],
+   "note": "local stack trace: engineering:debug, not RCA"
+  },
+  {
+   "id": "in2",
+   "family": "incident",
+   "kind": "negative",
+   "fixture": "ops",
+   "prompt": "Write a runbook for rotating the TLS certs on our edge HAProxy nodes.",
+   "intended": [],
+   "acceptable": [
+    "none",
+    "engineering:documentation"
+   ],
+   "note": ""
+  },
+  {
+   "id": "in3",
+   "family": "incident",
+   "kind": "negative",
+   "fixture": "ops",
+   "prompt": "What's the difference between an SLO and an SLA? Short answer.",
+   "intended": [],
+   "acceptable": [
+    "none"
+   ],
+   "note": ""
+  },
+  {
+   "id": "in4",
+   "family": "incident",
+   "kind": "negative",
+   "fixture": "ops",
+   "prompt": "What do the fields in this HAProxy log line mean?\n\nedge-01 haproxy[812]: 10.0.4.17:51234 [30/Sep/2026:12:41:07.113] fe_https~ be_checkout/checkout-2 0/0/1/30001/30002 503 216 - - sH-- 412/398/37/9/0 0/0 \"POST /api/checkout HTTP/1.1\"",
+   "intended": [],
+   "acceptable": [
+    "none"
+   ],
+   "note": "plain explanation; rca-investigation mentions preparing HAProxy logs"
+  },
+  {
+   "id": "r01",
+   "family": "review",
+   "kind": "eng-fair",
+   "fixture": "billing-svc",
+   "prompt": "Review my branch against main before I merge.",
+   "intended": [
+    "delivery:defect-first-review"
+   ],
+   "acceptable": [
+    "delivery:defect-first-review",
+    "code-review",
+    "engineering:code-review"
+   ],
+   "note": "'review this before I merge' is an engineering trigger"
+  },
+  {
+   "id": "r02",
+   "family": "review",
+   "kind": "custom",
+   "fixture": "billing-svc",
+   "prompt": "can you check my uncommitted changes for bugs?",
+   "intended": [
+    "delivery:defect-first-review"
+   ],
+   "acceptable": [
+    "delivery:defect-first-review",
+    "code-review",
+    "engineering:code-review"
+   ],
+   "note": ""
+  },
+  {
+   "id": "r03",
+   "family": "review",
+   "kind": "eng-fair",
+   "fixture": "billing-svc",
+   "prompt": "Is this safe to merge?\n\ndiff --git a/src/customers.ts b/src/customers.ts\nnew file mode 100644\n--- /dev/null\n+++ b/src/customers.ts\n@@ -0,0 +1,10 @@\n+import { db } from \"./db\";\n+\n+export async function findInvoicesByCustomer(name: string) {\n+  const customers = await db.query(`SELECT id FROM customers WHERE name LIKE '%${name}%'`);\n+  const out = [];\n+  for (const c of customers) {\n+    out.push(...(await db.query(\"SELECT * FROM invoices WHERE customer_id = $1\", [c.id])));\n+  }\n+  return out;\n+}",
+   "intended": [
+    "delivery:defect-first-review"
+   ],
+   "acceptable": [
+    "delivery:defect-first-review",
+    "code-review",
+    "engineering:code-review",
+    "security-review"
+   ],
+   "note": "'is this code safe?' trigger"
+  },
+  {
+   "id": "r04",
+   "family": "review",
+   "kind": "custom",
+   "fixture": "billing-svc",
+   "prompt": "Review this diff please:\n\n--- a/src/pricing.ts\n+++ b/src/pricing.ts\n@@ -15,7 +16,12 @@ export function applyDiscount(cents: number, promo?: Promo): number {\n export async function calcTotal(lines: Line[], promo?: Promo): Promise<number> {\n   let total = 0;\n-  for (const l of lines) total += l.qty * l.unitCents;\n+  for (let i = 0; i <= lines.length - 1; i++) {\n+    const l = lines[i];\n+    const linePromo = l.promo ? await loadPromo(l.promo) : undefined;\n+    total += applyDiscount(l.qty * l.unitCents, linePromo ?? promo);\n+  }\n   return applyDiscount(total, promo);\n }",
+   "intended": [
+    "delivery:defect-first-review"
+   ],
+   "acceptable": [
+    "delivery:defect-first-review",
+    "code-review",
+    "engineering:code-review"
+   ],
+   "note": ""
+  },
+  {
+   "id": "r05",
+   "family": "review",
+   "kind": "eng-fair",
+   "fixture": "billing-svc",
+   "prompt": "Check feature/pricing-refactor for N+1 queries and SQL injection before I open the PR.",
+   "intended": [
+    "delivery:defect-first-review"
+   ],
+   "acceptable": [
+    "delivery:defect-first-review",
+    "code-review",
+    "engineering:code-review",
+    "security-review",
+    "delivery:performance-review"
+   ],
+   "note": "N+1 and injection are engineering triggers"
+  },
+  {
+   "id": "r06",
+   "family": "review",
+   "kind": "custom",
+   "fixture": "billing-svc",
+   "prompt": "Review the last commit on this branch.",
+   "intended": [
+    "delivery:defect-first-review"
+   ],
+   "acceptable": [
+    "delivery:defect-first-review",
+    "code-review",
+    "engineering:code-review"
+   ],
+   "note": ""
+  },
+  {
+   "id": "r07",
+   "family": "review",
+   "kind": "eng-fair",
+   "fixture": "billing-svc",
+   "prompt": "https://github.com/acme/billing-svc/pull/42 can you review it?",
+   "intended": [
+    "delivery:defect-first-review"
+   ],
+   "acceptable": [
+    "delivery:defect-first-review",
+    "code-review",
+    "engineering:code-review"
+   ],
+   "note": "PR URL trigger; gh is denied in the run"
+  },
+  {
+   "id": "r08",
+   "family": "review",
+   "kind": "custom",
+   "fixture": "billing-svc",
+   "prompt": "Do a security pass on my changes before I push.",
+   "intended": [
+    "delivery:defect-first-review"
+   ],
+   "acceptable": [
+    "delivery:defect-first-review",
+    "code-review",
+    "engineering:code-review",
+    "security-review"
+   ],
+   "note": ""
+  },
+  {
+   "id": "r09",
+   "family": "review",
+   "kind": "ambiguous",
+   "fixture": "billing-svc",
+   "prompt": "Is my branch ready to merge into main?",
+   "intended": [
+    "delivery:delivery-lifecycle",
+    "delivery:defect-first-review"
+   ],
+   "acceptable": [
+    "delivery:defect-first-review",
+    "code-review",
+    "engineering:code-review",
+    "delivery:delivery-lifecycle"
+   ],
+   "note": "merge readiness is delivery-lifecycle's trigger"
+  },
+  {
+   "id": "r10",
+   "family": "review",
+   "kind": "custom",
+   "fixture": "billing-svc",
+   "prompt": "quick sanity check on what I changed in src/invoice.ts, anything broken?",
+   "intended": [
+    "delivery:defect-first-review"
+   ],
+   "acceptable": [
+    "delivery:defect-first-review",
+    "code-review",
+    "engineering:code-review"
+   ],
+   "note": ""
+  },
+  {
+   "id": "r11",
+   "family": "review",
+   "kind": "ambiguous",
+   "fixture": "billing-svc",
+   "prompt": "Before I merge: does this refactor make the cart total slower? We look at p95.",
+   "intended": [
+    "delivery:performance-review"
+   ],
+   "acceptable": [
+    "delivery:performance-review",
+    "delivery:defect-first-review",
+    "engineering:code-review"
+   ],
+   "note": "performance-review is the intended pick"
+  },
+  {
+   "id": "r12",
+   "family": "review",
+   "kind": "custom",
+   "fixture": "billing-svc",
+   "prompt": "Look at what I did on this branch and tell me if anything will break in prod.",
+   "intended": [
+    "delivery:defect-first-review"
+   ],
+   "acceptable": [
+    "delivery:defect-first-review",
+    "code-review",
+    "engineering:code-review"
+   ],
+   "note": ""
+  },
+  {
+   "id": "r13",
+   "family": "review",
+   "kind": "eng-fair",
+   "fixture": "billing-svc",
+   "prompt": "About to merge feature/pricing-refactor. Did I miss any edge cases or error handling?",
+   "intended": [
+    "delivery:defect-first-review"
+   ],
+   "acceptable": [
+    "delivery:defect-first-review",
+    "code-review",
+    "engineering:code-review"
+   ],
+   "note": "edge cases and error handling are engineering triggers"
+  },
+  {
+   "id": "r14",
+   "family": "review",
+   "kind": "custom",
+   "fixture": "billing-svc",
+   "prompt": "Review my teammate's change in the working tree. Be strict: only real bugs, no style nits.",
+   "intended": [
+    "delivery:defect-first-review"
+   ],
+   "acceptable": [
+    "delivery:defect-first-review",
+    "code-review",
+    "engineering:code-review"
+   ],
+   "note": ""
+  },
+  {
+   "id": "r15",
+   "family": "review",
+   "kind": "eng-fair",
+   "fixture": "billing-svc",
+   "prompt": "A contractor sent this patch. Any injection risks?\n\n--- a/src/reports.ts\n+++ b/src/reports.ts\n@@ -3,6 +3,11 @@ import { db } from \"./db\";\n+export async function exportReport(req: { query: { sort?: string; from: string } }) {\n+  const sort = req.query.sort ?? \"created_at\";\n+  return db.query(`SELECT * FROM invoices WHERE created_at >= $1 ORDER BY ${sort}`, [req.query.from]);\n+}",
+   "intended": [
+    "delivery:defect-first-review"
+   ],
+   "acceptable": [
+    "delivery:defect-first-review",
+    "code-review",
+    "engineering:code-review",
+    "security-review"
+   ],
+   "note": ""
+  },
+  {
+   "id": "r16",
+   "family": "review",
+   "kind": "custom",
+   "fixture": "billing-svc",
+   "prompt": "Review the changes between main and HEAD and rank whatever you find by severity.",
+   "intended": [
+    "delivery:defect-first-review"
+   ],
+   "acceptable": [
+    "delivery:defect-first-review",
+    "code-review",
+    "engineering:code-review"
+   ],
+   "note": ""
+  },
+  {
+   "id": "r17",
+   "family": "review",
+   "kind": "ambiguous",
+   "fixture": "billing-svc",
+   "prompt": "What do you think of this function?\n\nexport async function calcTotal(lines: Line[], promo?: Promo): Promise<number> {\n  let total = 0;\n  for (let i = 0; i <= lines.length - 1; i++) {\n    const l = lines[i];\n    const linePromo = l.promo ? await loadPromo(l.promo) : undefined;\n    total += applyDiscount(l.qty * l.unitCents, linePromo ?? promo);\n  }\n  return applyDiscount(total, promo);\n}",
+   "intended": [],
+   "acceptable": [
+    "none",
+    "delivery:defect-first-review",
+    "code-review",
+    "engineering:code-review"
+   ],
+   "note": ""
+  },
+  {
+   "id": "r18",
+   "family": "review",
+   "kind": "ambiguous",
+   "fixture": "billing-svc",
+   "prompt": "Is src/db.ts any good?",
+   "intended": [],
+   "acceptable": [
+    "none",
+    "engineering:code-review",
+    "code-review",
+    "engineering:tech-debt"
+   ],
+   "note": "whole file, not a change"
+  },
+  {
+   "id": "rn1",
+   "family": "review",
+   "kind": "negative",
+   "fixture": "billing-svc",
+   "prompt": "bun test fails with:\n\nexpect(received).toBe(expected)\nExpected: 900\nReceived: 810\n    at <anonymous> (test/pricing.test.ts:8:46)\n\nwhy?",
+   "intended": [],
+   "acceptable": [
+    "none",
+    "engineering:debug"
+   ],
+   "note": ""
+  },
+  {
+   "id": "rn2",
+   "family": "review",
+   "kind": "negative",
+   "fixture": "billing-svc",
+   "prompt": "What should we refactor first in this repo? It's getting messy.",
+   "intended": [],
+   "acceptable": [
+    "none",
+    "engineering:tech-debt"
+   ],
+   "note": ""
+  },
+  {
+   "id": "rn3",
+   "family": "review",
+   "kind": "negative",
+   "fixture": "billing-svc",
+   "prompt": "Write unit tests for src/invoice.ts.",
+   "intended": [],
+   "acceptable": [
+    "none",
+    "engineering:testing-strategy"
+   ],
+   "note": ""
+  },
+  {
+   "id": "rn4",
+   "family": "review",
+   "kind": "negative",
+   "fixture": "billing-svc",
+   "prompt": "Rename calcTotal to computeCartTotal everywhere.",
+   "intended": [],
+   "acceptable": [
+    "none"
+   ],
+   "note": ""
+  }
+ ]
+}
