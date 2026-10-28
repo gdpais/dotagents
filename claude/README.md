@@ -11,6 +11,7 @@ Working copies of the Claude skills: the incident, RCA, review and COO skills po
 - `overview.mmd` - how the skills hand off to each other.
 - `evals/` - test prompts and expectations per iteration (fixtures and run outputs are not stored); `evals/harness/` runs the delivery evals as real headless sessions.
 - `tools/validate_skills.ts` - checks frontmatter, names, script mentions, hand-offs and links. Run `bun run lint` and `bun run test` from the repository root; CI runs both.
+- `tools/usage_report.ts` - reads the Claude Code transcripts in `~/.claude/projects` and writes the datasets behind the "Skills and workflows usage" dashboard (skill and workflow runs, delivery gate events, cost, models, tools, permissions) to `~/.claude/usage-report/`, outside the repository. Run `bun run usage`, then ask Claude to refresh the dashboard from those files. Custom skills and workflows are read from this folder, so new ones show up without changes to the script.
 
 ## Skills
 
