@@ -56,6 +56,25 @@ test("content signals: string-built SQL and query in loop", () => {
   expect(r.gates.tests.level).toBe("suggested");
 });
 
+const flagsSql = (line: string, path = "src/q.ts") =>
+  classify([change(path, [line])]).gates.security.signals.some((s) => s.signal === "string-built SQL");
+
+test("string-built SQL needs statement shape, in either case, with interpolation anywhere after the keyword", () => {
+  expect(flagsSql("const q = `SELECT ${cols} FROM users`;")).toBe(true);
+  expect(flagsSql('db.query("select * from users where id = " + id)')).toBe(true);
+  expect(flagsSql('cur.execute("UPDATE users SET name = \'%s\'" % name)')).toBe(true);
+  expect(flagsSql('sql = "DELETE FROM t WHERE id = {}".format(x)')).toBe(true);
+  expect(flagsSql('q = f"INSERT INTO logs VALUES ({msg})"')).toBe(true);
+});
+
+test("prose and identifiers with SQL verbs are not string-built SQL", () => {
+  // hooks/autonomy.ts and cleanup_merged.ts, both flagged on 2026-10-28.
+  expect(flagsSql('    : `- When the user says a PR is merged (or you see it is): \\`git fetch --prune\\`, update ${base}, remove that branch\'s worktree and delete its local branch with \\`git branch -d\\` (never -D).`);', "hooks/autonomy.ts")).toBe(false);
+  expect(flagsSql('  else if (local.ok && !git(["merge-base", "--is-ancestor", local.out, tip.out], cwd).ok) res.baseUpdate = { status: "skipped", reason: `local ${base} has commits not on ${remote}/${base}` };', "scripts/cleanup_merged.ts")).toBe(false);
+  expect(flagsSql("log(`DELETE ${url} -> ${status}`)")).toBe(false);
+  expect(flagsSql("const label = `Select ${n} items`;")).toBe(false);
+});
+
 test("dependency change requires dependency and supply-chain security gates; lockfile excluded from size", () => {
   const r = classify([change("package.json", ['"left-pad": "^1.0.0"']), change("package-lock.json", Array(500).fill("x"))]);
   expect(r.gates.dependencies.level).toBe("required");
@@ -160,6 +179,30 @@ test("CLI --base diffs from the merge base and reads .claude/delivery.json", () 
   expect(code).toBe(0);
   expect(out.target.mode).toBe("base");
   expect(out.gates.performance.level).toBe("required");
+});
+
+test("CLI --base prefers origin/<base> over a stale local base, and falls back to the local branch", () => {
+  // origin/main has a merged commit that local main lacks; feature branches from origin/main.
+  sh("checkout", "-q", "-b", "merged");
+  put("src/login.ts", "const pw = eval(input);\n");
+  sh("add", ".");
+  sh("commit", "-q", "-m", "merged elsewhere");
+  sh("update-ref", "refs/remotes/origin/main", "HEAD");
+  sh("checkout", "-q", "-b", "feature");
+  put("README.md", "docs\n");
+  sh("add", ".");
+  sh("commit", "-q", "-m", "docs");
+
+  const [code, out] = cli("--base", "main");
+  expect(code).toBe(0);
+  expect(out.target.base_ref).toBe("origin/main");
+  expect(out.changed).toEqual(["README.md"]);
+  expect(out.gates.security.level).toBe("skip");
+
+  sh("update-ref", "-d", "refs/remotes/origin/main");
+  const [, local] = cli("--base", "main");
+  expect(local.target.base_ref).toBe("main");
+  expect(local.changed).toContain("src/login.ts");
 });
 
 test("CLI reports an error outside a repository", () => {

@@ -2,11 +2,12 @@
 /**
  * Classify a code change and decide which verification gates it needs.
  *
- * Read-only: runs only `git rev-parse`, `git diff --numstat`, `git diff -U0`
+ * Read-only: runs only `git rev-parse`, `git merge-base`, `git diff --numstat`, `git diff -U0`
  * and `git ls-files`. It never fetches, checks out, commits, or writes files.
  *
  * Target (one of; default --uncommitted):
- *   --base BRANCH     changes that would merge into BRANCH (diff from the merge base)
+ *   --base BRANCH     changes that would merge into BRANCH (diff from the merge base with
+ *                     origin/BRANCH when that ref exists, else with the local BRANCH)
  *   --range RANGE     any `git diff` range, e.g. a1b2c3..HEAD or main...feature
  *   --uncommitted     staged + unstaged changes against HEAD, plus untracked files
  *
@@ -58,13 +59,17 @@ const DOCS = /\.(md|mdx|rst|txt|adoc)$/i;
 
 // ------------------------------------------------------------- content rules
 // Patterns are checked against added lines only. Each has a short, stable signal name.
+// String-built SQL needs statement shape (SELECT…FROM, INSERT INTO, UPDATE x SET, DELETE FROM), so prose
+// such as "update ${base}" or an identifier such as baseUpdate doesn't fire; the interpolation may sit anywhere after the keyword.
+const SQL_STATEMENT = String.raw`\b(?:SELECT\b[^;\n]*?\bFROM|INSERT\s+(?:IGNORE\s+)?INTO|UPDATE\s+\S+\s+SET|DELETE\s+FROM)\b`;
+const SQL_INTERPOLATION = String.raw`\$\{|"\s*\+|'\s*\+|%s|\{\w*\}|\.format\(`;
 const SECURITY_CONTENT: [string, RegExp][] = [
   ["dynamic code execution", /\beval\s*\(|new\s+Function\s*\(|(?<![.\w$])exec(?:Sync|File|FileSync)?\s*\(|\b(?:child_process|childProcess|cp)\.(?:exec|spawn)\w*\s*\(|child_process|subprocess\.|os\.system\(|Runtime\.getRuntime\(\)\.exec/],
   ["raw HTML injection sink", /innerHTML\s*=|dangerouslySetInnerHTML|v-html=|\|\s*safe\b|mark_safe\(/],
   ["unsafe deserialization", /pickle\.loads?\(|yaml\.load\((?![^)]*SafeLoader)|ObjectInputStream|unserialize\(|Marshal\.load/],
   ["weak hash or randomness", /\b(md5|sha1)\b|Math\.random\(\)/i],
   ["TLS verification disabled", /verify\s*=\s*False|rejectUnauthorized\s*:\s*false|InsecureSkipVerify\s*:\s*true|NODE_TLS_REJECT_UNAUTHORIZED/],
-  ["string-built SQL", /(SELECT|INSERT|UPDATE|DELETE)\b[^;\n]*(\$\{|"\s*\+|'\s*\+|%s|\{\w*\}|\.format\()/i],
+  ["string-built SQL", new RegExp(String.raw`(?=${SQL_STATEMENT})(?:SELECT|INSERT|UPDATE|DELETE)\b[^;\n]*(?:${SQL_INTERPOLATION})`, "i")],
   ["CORS or security header change", /Access-Control-Allow-Origin|\bcors\s*\(|Content-Security-Policy|X-Frame-Options/i],
   ["credential-like literal", /(password|passwd|secret|api[_-]?key|token|private[_-]?key)\s*[:=]\s*["'][^"'\s]{8,}["']/i],
   ["auth decision", /\b(isAdmin|is_admin|hasRole|has_role|authorize|authorise|permission_required|@PreAuthorize|checkPermission|can\?)\b/],
@@ -258,9 +263,12 @@ export async function classifyRepo(cwd: string | undefined, target: Target = {},
   }
   let t: Record<string, string>, diffArgs: string[], untracked: boolean;
   if (target.base !== undefined) {
-    const mb = (await git(["merge-base", "HEAD", target.base], cwd))?.trim();
-    if (!mb) return `no merge base between HEAD and ${target.base}`;
-    t = { mode: "base", base: target.base, merge_base: mb }; diffArgs = [mb]; untracked = true;
+    // Prefer origin/<base>: a stale local base would count already-merged commits as part of the change.
+    const remote = `origin/${target.base}`;
+    const ref = (await git(["rev-parse", "--verify", "--quiet", `refs/remotes/${remote}`], cwd)) ? remote : target.base;
+    const mb = (await git(["merge-base", "HEAD", ref], cwd))?.trim();
+    if (!mb) return `no merge base between HEAD and ${ref}`;
+    t = { mode: "base", base: target.base, base_ref: ref, merge_base: mb }; diffArgs = [mb]; untracked = true;
   } else if (target.range !== undefined) {
     t = { mode: "range", range: target.range }; diffArgs = [target.range]; untracked = false;
   } else {
