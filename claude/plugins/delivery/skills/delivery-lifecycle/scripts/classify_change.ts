@@ -58,13 +58,15 @@ const SOURCE = /\.(ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|kt|rb|php|cs|swift|scala|
 const DOCS = /\.(md|mdx|rst|txt|adoc)$/i;
 
 // ------------------------------------------------------------- content rules
-// Patterns are checked against added lines only. Each has a short, stable signal name.
+// Patterns are checked against added lines only, with comment-only lines skipped (see codeText). Each has a
+// short, stable signal name.
 // String-built SQL needs statement shape (SELECT…FROM, INSERT INTO, UPDATE x SET, DELETE FROM), so prose
 // such as "update ${base}" or an identifier such as baseUpdate doesn't fire; the interpolation may sit anywhere after the keyword.
 const SQL_STATEMENT = String.raw`\b(?:SELECT\b[^;\n]*?\bFROM|INSERT\s+(?:IGNORE\s+)?INTO|UPDATE\s+\S+\s+SET|DELETE\s+FROM)\b`;
 const SQL_INTERPOLATION = String.raw`\$\{|"\s*\+|'\s*\+|%s|\{\w*\}|\.format\(`;
+// eval( and exec( take no space before the paren: formatters write calls that way, and prose writes "eval (…)".
 const SECURITY_CONTENT: [string, RegExp][] = [
-  ["dynamic code execution", /\beval\s*\(|new\s+Function\s*\(|(?<![.\w$])exec(?:Sync|File|FileSync)?\s*\(|\b(?:child_process|childProcess|cp)\.(?:exec|spawn)\w*\s*\(|child_process|subprocess\.|os\.system\(|Runtime\.getRuntime\(\)\.exec/],
+  ["dynamic code execution", /\beval\(|new\s+Function\s*\(|(?<![.\w$])exec(?:Sync|File|FileSync)?\(|\b(?:child_process|childProcess|cp)\.(?:exec|spawn)\w*\s*\(|child_process|subprocess\.|os\.system\(|Runtime\.getRuntime\(\)\.exec/],
   ["raw HTML injection sink", /innerHTML\s*=|dangerouslySetInnerHTML|v-html=|\|\s*safe\b|mark_safe\(/],
   ["unsafe deserialization", /pickle\.loads?\(|yaml\.load\((?![^)]*SafeLoader)|ObjectInputStream|unserialize\(|Marshal\.load/],
   ["weak hash or randomness", /\b(md5|sha1)\b|Math\.random\(\)/i],
@@ -87,6 +89,50 @@ const MIGRATION_CONTENT: [string, RegExp][] = [
   ["destructive schema change", /DROP\s+(TABLE|COLUMN)|ALTER\s+TABLE\s+\S+\s+DROP|remove_column|drop_table|dropColumn|RENAME\s+(COLUMN|TO)/i],
   ["locking schema change", /ALTER\s+TABLE[^;]*(ADD\s+COLUMN[^;]*NOT\s+NULL(?![^;]*DEFAULT)|ALTER\s+COLUMN[^;]*TYPE)|CREATE\s+(UNIQUE\s+)?INDEX(?!\s+CONCURRENTLY)/i],
 ];
+
+// A secret in a comment still leaks, so this rule also reads comment lines; the others look for code.
+const IN_COMMENTS = new Set(["credential-like literal"]);
+
+// Comment syntax by extension. Files not listed here are scanned as they are.
+const SLASH_COMMENTS = /\.(ts|tsx|js|jsx|mjs|cjs|go|rs|java|kt|cs|swift|scala|c|cc|cpp|h|hpp|vue|svelte)$/i;
+const HASH_COMMENTS = /\.(py|rb|ex|exs)$/i;
+const commentSyntax = (path: string): { line: RegExp; block: boolean } | null =>
+  SLASH_COMMENTS.test(path) ? { line: /^\s*\/\//, block: true }
+  : HASH_COMMENTS.test(path) ? { line: /^\s*#/, block: false }
+  : /\.php$/i.test(path) ? { line: /^\s*(\/\/|#)/, block: true }
+  : /\.sql$/i.test(path) ? { line: /^\s*--/, block: true }
+  : null;
+
+/**
+ * The code on each added line, with comment-only lines as "". Per line, not a parser: a line comment,
+ * a `/* … *\/` block that opens at the start of a line, and a ` * ` doc-block line (a hunk can start
+ * mid-block) count as comment. Trailing comments stay, and a block opened after code isn't tracked,
+ * so unusual layouts err towards firing.
+ */
+export function codeText(f: FileChange): string[] {
+  const syntax = commentSyntax(f.path);
+  if (!syntax) return f.addedLines.map((l) => l.text);
+  let inBlock = false;
+  let prev = -1;
+  return f.addedLines.map(({ line, text }) => {
+    if (line !== prev + 1) inBlock = false; // a gap in the hunk: what lies between is unknown
+    prev = line;
+    if (syntax.block) {
+      if (inBlock || /^\s*\*\//.test(text)) {
+        const end = text.indexOf("*/");
+        if (end < 0) return "";
+        inBlock = false;
+        text = text.slice(end + 2);
+      } else if (/^\s*\*(\s|$)/.test(text)) return "";
+      while (/^\s*\/\*/.test(text)) {
+        const end = text.indexOf("*/", text.indexOf("/*") + 2);
+        if (end < 0) { inBlock = true; return ""; }
+        text = text.slice(end + 2);
+      }
+    }
+    return syntax.line.test(text) || !text.trim() ? "" : text;
+  });
+}
 
 export function globsToRegex(globs: string[] = []): RegExp[] {
   return globs.map((g) => {
@@ -120,9 +166,10 @@ export function classify(changes: FileChange[], config: Config = {}) {
   };
   const scan = (g: Gate, level: Level, rules: [string, RegExp][], f: FileChange, max = 3) => {
     let hits = 0;
-    for (const { line, text } of f.addedLines) {
+    const code = codeText(f);
+    for (const [i, { line, text }] of f.addedLines.entries()) {
       for (const [name, re] of rules) {
-        if (re.test(text) && !g.signals.some((x) => x.signal === name && x.file === f.path)) {
+        if (re.test(IN_COMMENTS.has(name) ? text : code[i]) && !g.signals.some((x) => x.signal === name && x.file === f.path)) {
           raise(g, level, { signal: name, file: f.path, line });
           if (++hits >= max) return;
         }
