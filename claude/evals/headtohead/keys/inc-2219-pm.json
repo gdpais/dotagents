@@ -1,0 +1,132 @@
+{
+ "scenario": "INC-2219, Mon 28 Sep 2026, payment confirmations failing ~09:43-10:40 Lisbon",
+ "true_cause": "payments-gw v5.2 (09:36 Lisbon) added a synchronous fraud check (flag fraud_check_sync, 3 s timeout) on the confirm path. fraud-svc had been cut to 2 replicas on Friday (minReplicas 6->2) and the 09:40 campaign doubled traffic, so fraud-svc saturated (~99% CPU, p95 3 s), fraud calls timed out at 3 s and payments-gw returned 503 for confirms. Trigger/enabling change: v5.2 sync check; contributing conditions: replicas cut, campaign traffic. Scaling fraud-svc to 6 at 10:25 only reduced failures (partial mitigation); setting fraud_check_sync OFF at 10:40 ended the impact.",
+ "red_herrings": [
+  "orders-db failover at 10:05 Lisbon: planned, ~20 s, 23 min after onset, produced 502 SH-- on both confirm and checkout only during the blip (different signature), errors 38 in one minute only.",
+  "CDN Brotli at 09:20: static assets only, /static/* stays 200, onset is 23 min later, only the confirm path fails."
+ ],
+ "traps": [
+  "edge-02 clock runs ~95 s fast: its first confirm 503 is logged ~95 s after edge-01's; correct or exclude it before merging timelines.",
+  "UTC logs vs Lisbon (UTC+1) change log, Slack and Grafana.",
+  "Edge 503s (customer-facing confirm failures) and payments-gw internal 504s (orders-worker fraud pre-checks) are different stages; adding them into one customer-failure total is wrong.",
+  "Only /api/checkout/confirm is materially affected; cart, browsing and static are fine."
+ ],
+ "figures": {
+  "impact_window": "09:42:52-10:40:00 Lisbon (08:42:52-09:40:00 UTC); first confirm 503 at 08:42:52 UTC on edge-01 (edge-02 logs it ~95 s later)",
+  "edge02_clock_offset_s": 95,
+  "confirm_requests_in_window_both_edges_corrected": 4694,
+  "confirm_503_in_window": 1420,
+  "confirm_502_in_window_db_failover_blip": 24,
+  "confirm_failed_in_window": 1444,
+  "confirm_failure_rate_pct": 30.8,
+  "confirm_503_rate_pct": 30.3,
+  "per_edge": {
+   "edge-01": {
+    "confirm_total_log": 3681,
+    "confirm_503_log": 714,
+    "confirm_502_log": 15,
+    "confirm_win": 2334,
+    "confirm_503_win": 714,
+    "confirm_502_win": 15,
+    "confirm_win_uncorrected": 2334,
+    "confirm_503_win_uncorrected": 714,
+    "checkout_502_log": 16,
+    "other_5xx": 0
+   },
+   "edge-02": {
+    "confirm_total_log": 3659,
+    "confirm_503_log": 706,
+    "confirm_502_log": 9,
+    "confirm_win": 2360,
+    "confirm_503_win": 706,
+    "confirm_502_win": 9,
+    "confirm_win_uncorrected": 2378,
+    "confirm_503_win_uncorrected": 694,
+    "checkout_502_log": 20,
+    "other_5xx": 0
+   }
+  },
+  "alternative_windows": {
+   "minutes_0842_to_0940_utc_corrected": {
+    "requests": 4773,
+    "503": 1420,
+    "502": 24,
+    "failed": 1444,
+    "rate_pct": 30.3
+   },
+   "minutes_0842_to_0944_utc_corrected": {
+    "requests": 5092,
+    "503": 1420,
+    "502": 24,
+    "failed": 1444,
+    "rate_pct": 28.4
+   },
+   "0842:52_to_0940_uncorrected_edge02_timestamps": {
+    "requests": 4712,
+    "503": 1408,
+    "502": 24,
+    "failed": 1432,
+    "rate_pct": 30.4
+   },
+   "0845_to_0940_utc_corrected": {
+    "requests": 4518,
+    "503": 1350,
+    "502": 24,
+    "failed": 1374,
+    "rate_pct": 30.4
+   },
+   "whole_log_both_edges": {
+    "requests": 7340,
+    "503": 1420,
+    "502": 24,
+    "failed": 1444,
+    "rate_pct": 19.7
+   },
+   "before_scaleup_0842:52_to_0925": {
+    "requests": 3463,
+    "503": 1238,
+    "502": 24,
+    "failed": 1262,
+    "rate_pct": 36.4
+   },
+   "after_scaleup_0925_to_0940": {
+    "requests": 1231,
+    "503": 182,
+    "502": 0,
+    "failed": 182,
+    "rate_pct": 14.8
+   }
+  },
+  "failure_rate_before_scaleup_pct": 36.0,
+  "failure_rate_after_scaleup_before_flagoff_pct": 14.8,
+  "iis_confirm_503_total": 1420,
+  "iis_confirm_500_during_db_blip": 24,
+  "iis_precheck_504_internal": 416,
+  "iis_precheck_total": 2672,
+  "db_failover": "10:05:10-10:05:31 Lisbon (~20 s): 502 SH-- on confirm and checkout during the blip only; orders-db errors 38 in that minute; after onset and a different signature",
+  "slo": "99.5% of payment confirmations succeed (event-based), monthly volume 428,000",
+  "error_budget_allowed_failures": 2140,
+  "error_budget_consumed_pct": 67.5,
+  "error_budget_consumed_pct_503_only": 66.4,
+  "time_to_detect": "onset 09:42:52 -> alert 09:51 = ~8 min",
+  "time_to_restore": "09:42:52 -> 10:40 flag off (errors gone by 10:44 per Slack) = ~57 min"
+ },
+ "facts_in_evidence": [
+  "Change log (Lisbon): Fri 25 Sep 17:10 fraud-svc minReplicas 6->2 (cost review); Mon 28 Sep 09:20 CDN Brotli for /static/*; 09:36 payments-gw v5.2 sync fraud check behind flag fraud_check_sync (default ON), 3 s timeout; 09:40 'Autumn sale' email to 1.2M customers; 10:05 planned orders-db failover db-a->db-b; 10:25 fraud-svc scaled to 6; 10:40 fraud_check_sync OFF.",
+  "Slack (Lisbon): 09:51 alert confirm 5xx>10%; 09:53 Rui confirms 503 at edge, cart/browsing fine; 09:58 Sofia suspects CDN Brotli; 10:03 fraud-svc CPU high; 10:07 Tiago blames DB failover; 10:09 Marta: planned failover, ~20 s, db-b primary; 10:14 Tiago still blames DB; 10:20 fraud-svc ~99% CPU on 2 pods; 10:25 scaled to 6; 10:31 better but still failing; 10:36 Ines: v5.2 sync fraud check 3 s, turning flag off; 10:40 flag OFF; 10:44 errors gone; 11:20 resolved.",
+  "HAProxy edge-01 and edge-02 (UTC, edge-02 clock ~95 s fast), 08:20-10:00 UTC (edge-02's lines are logged 95 s late relative to edge-01): be_payments (/api/checkout/confirm), be_checkout, be_cart, be_static. Only confirm has 503s (Tr ~3.0-3.2 s). 502 SH-- on confirm and checkout only during 09:05:10-09:05:31 UTC.",
+  "payments-gw IIS (UTC): /v1/payments/confirm (status 200/503, 503s take ~3 s; 500s only during the DB blip) and /internal/orders/fraud-precheck from orders-worker (200/504). The 504s are internal calls; their customer outcome is not in the evidence.",
+  "Grafana fraud-svc (Lisbon): replicas 2 until 10:24, 6 from 10:25; CPU 22-34% before 09:36, 64-76% from 09:36, 97-99% with p95 3000 ms from 09:42 to 10:24, 80-90% from 10:25, 22-34% after 10:40; rps x4 from 09:36, x2.3 more from 09:40; timeouts per minute drop after the scale-up but reach 0 only at 10:40.",
+  "Grafana checkout-svc (Lisbon): confirm_rps roughly doubles from 09:40 (campaign); confirm_5xx_pct high from 09:43, lower after 10:25, 0 after 10:40.",
+  "Grafana orders-db (Lisbon): primary db-a until the failover minute, db-b after; errors 38 only in the 10:05 minute; CPU 24-36%.",
+  "No customer counts, revenue, refunds, owners, ticket numbers or severity are in the evidence (the campaign's 1.2M recipients is the only customer-related figure)."
+ ],
+ "postmortem_expectations": [
+  "Cause matches the RCA summary and keeps confidence 'strongly supported' (not upgraded to confirmed).",
+  "Impact: 1,444 of 4,694 failed confirmations (30.8%), or 1,420 503s with the same denominator.",
+  "Error budget from the event-based SLI: allowed failures 2,140 (428,000 x 0.5%); consumed ~67.5% by 1,444 (or ~66.4% by 503s only); not from duration.",
+  "Time to detect from a stated impact start: 09:42:52 (or ~09:43) to 09:51 = ~8 min; no MTTR label for a single incident.",
+  "Partial mitigation (scale-up 10:25) is distinguished from restoration (flag off 10:40).",
+  "Action items do not invent owners or due dates (to be assigned / proposed is fine)."
+ ]
+}

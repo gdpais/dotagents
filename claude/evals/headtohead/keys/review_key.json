@@ -1,0 +1,212 @@
+{
+ "rv-billing": {
+  "branch": "feature/pricing-refactor",
+  "base": "main",
+  "lang": "python",
+  "defects": [
+   {
+    "id": "D1",
+    "file": "billing/invoices.py",
+    "line": 16,
+    "kind": "security",
+    "defect": "get_invoice no longer filters by tenant_id: any tenant can read another tenant's invoice by id (broken access control / IDOR).",
+    "code": "row = db.execute(f\"SELECT {COLUMNS} FROM invoices WHERE id = ?\", (invoice_id,)).fetchone()"
+   },
+   {
+    "id": "D2",
+    "file": "billing/invoices.py",
+    "line": 21,
+    "kind": "security",
+    "defect": "search_invoices interpolates status into the SQL string: SQL injection.",
+    "code": "query = f\"SELECT {COLUMNS} FROM invoices WHERE tenant_id = ? AND status = '{status}'\""
+   },
+   {
+    "id": "D3",
+    "file": "billing/pricing.py",
+    "line": 20,
+    "kind": "performance",
+    "defect": "order_total queries the price once per line (N+1) instead of the previous single IN query.",
+    "code": "subtotal += price_of(db, line.product_id) * line.qty"
+   },
+   {
+    "id": "D4",
+    "file": "billing/pricing.py",
+    "line": 21,
+    "kind": "correctness",
+    "defect": "int() truncates instead of rounding (and floats the cents): totals are under-charged by up to a cent compared with main's round().",
+    "code": "return int(subtotal * (1 - discount))"
+   }
+  ],
+  "decoys": [
+   "COLUMNS f-string in get_invoice/search_invoices is a module constant, not user input: flagging it as injection is a false positive."
+  ]
+ },
+ "rv-inventory": {
+  "branch": "feature/reservations-audit",
+  "base": "main",
+  "lang": "typescript",
+  "defects": [
+   {
+    "id": "D1",
+    "file": "src/reservations.ts",
+    "line": 9,
+    "kind": "concurrency",
+    "defect": "reserve reads stock, awaits, then writes available - qty: concurrent reservations race (check-then-act / lost update) and oversell; main used the atomic decrementIfAvailable.",
+    "code": "const item = await repo.get(sku);"
+   },
+   {
+    "id": "D2",
+    "file": "src/reservations.ts",
+    "line": 23,
+    "kind": "error-handling",
+    "defect": "confirmOrder swallows a failed capture and still marks the order paid (with captureId 'pending'); main marked it failed and rethrew.",
+    "code": "await orders.markPaid(orderId, captureId);"
+   }
+  ],
+  "decoys": [
+   "reserve's new audit parameter changes its signature; the in-repo caller (test) is updated."
+  ]
+ },
+ "rv-notifier": {
+  "branch": "feature/batch-send",
+  "base": "main",
+  "lang": "typescript",
+  "defects": [
+   {
+    "id": "D1",
+    "file": "src/send.ts",
+    "line": 7,
+    "kind": "correctness",
+    "defect": "attempt is never incremented: a retryable error (5xx, 429, network) retries forever with a constant 400 ms sleep.",
+    "code": "for (let attempt = 1; attempt <= MAX_ATTEMPTS; ) {"
+   },
+   {
+    "id": "D2",
+    "file": "src/batch.ts",
+    "line": 9,
+    "kind": "error-handling",
+    "defect": "forEach with an async callback is not awaited: sendCampaign returns before sends finish, reports every recipient as sent, and send failures become unhandled rejections (also unbounded parallelism).",
+    "code": "recipients.forEach(async (r) => {"
+   },
+   {
+    "id": "D3",
+    "file": "src/batch.ts",
+    "line": 8,
+    "kind": "error-handling",
+    "defect": "release() is no longer in finally: if the query throws, the pooled connection leaks.",
+    "code": "conn.release();"
+   }
+  ],
+  "decoys": []
+ },
+ "rv-auth": {
+  "branch": "feature/sso-callback",
+  "base": "main",
+  "lang": "typescript",
+  "defects": [
+   {
+    "id": "D1",
+    "file": "src/sso.ts",
+    "line": 5,
+    "kind": "security",
+    "defect": "The state check is skipped when state is absent: login CSRF / session fixation (main rejected a missing state).",
+    "code": "if (req.query.state && req.query.state !== req.session.state) return res.status(400).send(\"bad state\");"
+   },
+   {
+    "id": "D2",
+    "file": "src/sso.ts",
+    "line": 10,
+    "kind": "security",
+    "defect": "The IdP access token is written to the logs.",
+    "code": "logger.info(\"sso login\", { email, accessToken });"
+   },
+   {
+    "id": "D3",
+    "file": "src/sso.ts",
+    "line": 11,
+    "kind": "security",
+    "defect": "returnTo is no longer validated: open redirect (main allowed same-site paths only).",
+    "code": "res.redirect(req.query.returnTo ?? \"/\");"
+   }
+  ],
+  "decoys": []
+ },
+ "rv-ledger": {
+  "branch": "feature/transfer-fees",
+  "base": "main",
+  "lang": "python",
+  "defects": [
+   {
+    "id": "D1",
+    "file": "ledger/entries.py",
+    "line": 16,
+    "kind": "correctness",
+    "defect": "page is 1-based but the offset is now page * size: page 1 skips the newest `size` entries (main used (page - 1) * size).",
+    "code": "(account_id, size, page * size),"
+   },
+   {
+    "id": "D2",
+    "file": "ledger/entries.py",
+    "line": 20,
+    "kind": "correctness",
+    "defect": "Mutable default list: the 'fee' tag appended for fee entries persists, so every later entry posted without tags is tagged 'fee'.",
+    "code": "def post(db, account_id: int, amount, memo: str, tags: list[str] = []) -> int:"
+   },
+   {
+    "id": "D3",
+    "file": "ledger/entries.py",
+    "line": 35,
+    "kind": "concurrency",
+    "defect": "The debit and the credit/fee are now in two separate transactions: if the second fails, the source is debited with no credit (money disappears); transfer is no longer atomic.",
+    "code": "post(db, dst, amount, memo)"
+   }
+  ],
+  "decoys": [
+   "Decimal(str(value)) in to_amount is correct (avoids float noise).",
+   "The fee quantize to 0.01 is intentional."
+  ]
+ },
+ "rv-cache": {
+  "branch": "feature/dashboard-cache",
+  "base": "main",
+  "lang": "typescript",
+  "defects": [
+   {
+    "id": "D1",
+    "file": "src/dashboard.ts",
+    "line": 7,
+    "kind": "security",
+    "defect": "The cache key ignores the user: every user requesting /dashboard gets whoever's dashboard was cached first (personal balances leak across users).",
+    "code": "const key = `dashboard:${req.path}`;"
+   },
+   {
+    "id": "D2",
+    "file": "src/dashboard.ts",
+    "line": 11,
+    "kind": "correctness",
+    "defect": "Cache.set takes milliseconds (deps.ts) but gets 300: entries live 0.3 s instead of five minutes, so the cache does nothing.",
+    "code": "await cache.set(key, res, TTL_SECONDS);"
+   },
+   {
+    "id": "D3",
+    "file": "src/dashboard.ts",
+    "line": 10,
+    "kind": "error-handling",
+    "defect": "Responses are cached whatever their status: an upstream 5xx/4xx is cached and served from cache.",
+    "code": "const res = await api.dashboard(req.userId);"
+   }
+  ],
+  "decoys": [
+   "widgets(): de-duplicated ids in one batched call is correct; the empty-ids guard is fine."
+  ]
+ },
+ "rv-clean": {
+  "branch": "refactor/extract-formatters",
+  "base": "main",
+  "lang": "typescript",
+  "defects": [],
+  "decoys": [
+   "Behaviour-preserving move of formatCurrency/formatDate to format.ts, re-exported from orders.ts; new tests pass. Any defect reported here is a false positive."
+  ]
+ }
+}
