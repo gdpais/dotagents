@@ -12,6 +12,7 @@ Working copies of the Claude skills: the incident, RCA, review and COO skills po
 - `evals/` - test prompts and expectations per iteration (fixtures and run outputs are not stored); `evals/harness/` runs the delivery evals as real headless sessions.
 - `tools/validate_skills.ts` - checks frontmatter, names, script mentions, hand-offs and links. Run `bun run lint` and `bun run test` from the repository root; CI runs both.
 - `tools/usage_report.ts` - reads the Claude Code transcripts in `~/.claude/projects` and writes the datasets behind the "Skills and workflows usage" dashboard (skill and workflow runs, delivery gate events, cost, models, tools, permissions) to `~/.claude/usage-report/`, outside the repository. Run `bun run usage`, then ask Claude to refresh the dashboard from those files. Custom skills and workflows are read from this folder, so new ones show up without changes to the script.
+- `tools/permission_audit.ts` - lists the tool calls that stopped for permission and who stopped them (you, a hook, or auto mode's classifier), from the `permissionDecision` Claude Code records on each tool result. Run `bun claude/tools/permission_audit.ts --project Heartbeat --since 2026-10-22` when Claude asks for things it shouldn't.
 
 ## Skills
 
@@ -22,12 +23,11 @@ Working copies of the Claude skills: the incident, RCA, review and COO skills po
 | incident-postmortem | incident-response | Blameless postmortem after the Google SRE example |
 | tech-email | incident-response | Technical email, only when explicitly asked |
 | rca-investigation | rca | Evidence-led root cause analysis |
-| defect-first-review | code-review | Code review that leads with defects |
 | coo-portfolio-review | coo-review | Portfolio review, on demand, stored under the project where it runs |
 
 The delivery skills (`delivery-lifecycle`, `feature-planning`, `performance-review`, `ci-cd-pipeline`) ship in the `delivery` plugin.
 
-Turn off `engineering:incident-response` and `engineering:code-review` in the app when these are installed (G-14). The delivery workflow relies on the built-in `security-review` and on `engineering:deploy-checklist`, `architecture`, `system-design`, `testing-strategy`, `debug`, `tech-debt` and `documentation`; keep those on.
+Turn off `engineering:incident-response` in the app when it is installed (G-14). Keep `engineering:code-review` on: it is the delivery workflow's reviewer (G-46). The delivery workflow also relies on the built-in `security-review` and on `engineering:deploy-checklist`, `architecture`, `system-design`, `testing-strategy`, `debug`, `tech-debt` and `documentation`; keep those on.
 
 ## Install the delivery plugin
 
@@ -46,7 +46,7 @@ What it does without being asked: when Claude finishes a turn in which it edited
 
 ```json
 { "autonomy": { "push": ["feature/*"], "openPr": true, "autoFix": true, "cleanupMerged": true,
-                "continue": { "backlog": "TODO.md", "maxItems": 3 }, "localClusters": ["kind-*", "minikube"] } }
+                "continue": { "backlog": "TODO.md" }, "localClusters": ["kind-*", "minikube"] } }
 ```
 
 With it, the policy is added to each new session, pushes of matching branches and kubectl/helm against the listed local clusters stop asking, and the Stop hook nudges once when finished work isn't pushed or has no PR, unless the user said to hold. Merges, tags, releases, deploys, pushes to the base branch and force pushes still ask. Without the block, behaviour is v2.3's. With `cleanupMerged`, cleanup after a merge is one call to `cleanup_merged.ts` (fetch with prune, fast-forward the base, remove clean worktrees of merged branches, `git branch -d`); it keeps anything unmerged or dirty and says why.

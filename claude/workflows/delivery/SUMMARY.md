@@ -8,14 +8,14 @@
 
 | Skill | Company role | Scripts (bun, tested) |
 |---|---|---|
-| `delivery-lifecycle` | Engineering manager: routing, merge and release gates, approvals | `preflight.ts` (classify + quality + secrets + CI audit in one call), `release_plan.ts` (semver bump and changelog), `cleanup_merged.ts` (post-merge cleanup); libraries `classify_change.ts`, `quality_gate.ts`, `scan_secrets.ts` |
+| `delivery-lifecycle` | Engineering manager: routing, merge and release gates, approvals | `preflight.ts` (classify + quality + secrets + CI audit in one call), `release_plan.ts` (semver bump and changelog), `cleanup_merged.ts` (post-merge cleanup), `pr_risk.ts` (low / medium / breaking, merge route, evidence); libraries `classify_change.ts`, `quality_gate.ts`, `scan_secrets.ts` |
 | `feature-planning` | Product + tech lead: spec, testable ACs, slices, Definition of Ready | — |
 | `performance-review` | Performance engineering: budgets, base vs head on p90/p95, profiling | `bench_stats.ts` |
 | `ci-cd-pipeline` | Platform / DevOps: pipeline design and audit | `audit_ci.ts` |
 
-**Anthropic and existing skills used by stage:** Design → `engineering:architecture`, `engineering:system-design`. Build → `engineering:testing-strategy`, `engineering:debug`. Verify → `defect-first-review` (always), built-in `security-review`, `engineering:deploy-checklist` for migrations. Release → `engineering:deploy-checklist`. Operate and Learn → `sre-incident-lifecycle`, `rca-investigation`, `incident-postmortem`, `engineering:tech-debt`, `engineering:documentation`, `coo-portfolio-review` (on demand).
+**Anthropic and existing skills used by stage:** Design → `engineering:architecture`, `engineering:system-design`. Build → `engineering:testing-strategy`, `engineering:debug`. Verify → `engineering:code-review` (always; `defect-first-review` was retired on 2026-11-02, DL-78), built-in `security-review`, `engineering:deploy-checklist` for migrations. Release → `engineering:deploy-checklist`. Operate and Learn → `sre-incident-lifecycle`, `rca-investigation`, `incident-postmortem`, `engineering:tech-debt`, `engineering:documentation`, `coo-portfolio-review` (on demand).
 
-**Repository tooling:** `claude/tools/validate_skills.ts`, root `package.json` (`bun run lint`, `bun run test`), `.github/workflows/ci.yml` (validation, all tests, secret scan, CI self-audit; SHA-pinned).
+**Repository tooling:** `claude/tools/validate_skills.ts`, `claude/tools/permission_audit.ts` (who stopped each tool call for permission), root `package.json` (`bun run lint`, `bun run test`), `.github/workflows/ci.yml` (validation, all tests, secret scan, CI self-audit; SHA-pinned).
 
 **Trigger examples:** "take this feature from idea to production" / "is this ready to merge?" → delivery-lifecycle · "write a spec for bulk invoice export" → feature-planning · "is my branch slower than main?" → performance-review · "harden our GitHub Actions" → ci-cd-pipeline.
 
@@ -31,3 +31,5 @@
 
 **Iteration 7 (2026-10-21, hard tasks shipped end to end):** 75 runs, app-like. v3 needed no nudges (25/25), against 1.0 per task with no workflow, at the same cost. The CLAUDE.md agreement needed almost none but cost +$0.22 per task (worktree set-up in every run). Trap-fix quality didn't change with autonomy; one task tempted every arm into an unasked API rename.
 
+
+**v3.2 (2026-11-02, fewer asks, review and merge by risk):** a transcript audit of 45 Heartbeat sessions found the extra asks came from auto mode's classifier (it blocked Auto-fix 7 of 14 times), three guard parsing bugs, and merges asked again after the user said "merge". The hooks now approve the policy's routine steps outright, shipping includes `engineering:code-review` (the reviewer since DL-78; `defect-first-review` is retired), and an opt-in `autonomy.merge` merges low-risk PRs on green, lets Claude merge, block or ask on medium ones, and leaves breaking ones to the user, always with product-facing evidence (DL-70 to DL-79).

@@ -15,7 +15,7 @@ Answer one question with evidence: does this change move the metric that matters
 
 ## 2. Static pass (always, cheap)
 
-Read the diff and the call paths it touches for the classes in [references/methodology.md](references/methodology.md#static-review-classes): queries in loops (N+1), unbounded reads, missing or unused indexes for new query shapes, synchronous I/O or sleeps on request paths, quadratic algorithms over user-sized data, cache invalidation storms, payload or bundle growth, lock contention, and memory retention. Each candidate needs the cited `path:line` in the reviewed version and a size argument ("for an account with N orders this runs N queries"). Confirmed defects go in the report with the same P-scale as `defect-first-review`; unproven ones are risks to measure.
+Read the diff and the call paths it touches for the classes in [references/methodology.md](references/methodology.md#static-review-classes): queries in loops (N+1), unbounded reads, missing or unused indexes for new query shapes, synchronous I/O or sleeps on request paths, quadratic algorithms over user-sized data, cache invalidation storms, payload or bundle growth, lock contention, and memory retention. Each candidate needs the cited `path:line` in the reviewed version and a size argument ("for an account with N orders this runs N queries"). Confirmed defects go in the report ranked by severity (Critical, High, Medium, Low), as `engineering:code-review` ranks them; unproven ones are risks to measure.
 
 ## 3. Measure (when the gate is required or a static candidate needs proof)
 

@@ -8,11 +8,15 @@
 import { join } from "node:path";
 import { loadConfig, parseAutonomy, policyContext } from "./autonomy";
 
-const CLEANUP = join(import.meta.dir, "..", "skills", "delivery-lifecycle", "scripts", "cleanup_merged.ts");
+const SCRIPTS = join(import.meta.dir, "..", "skills", "delivery-lifecycle", "scripts");
+const CLEANUP = join(SCRIPTS, "cleanup_merged.ts");
+const RISK = join(SCRIPTS, "pr_risk.ts");
 
 const git = (args: string[], cwd: string) => {
-  const p = Bun.spawnSync(["git", ...args], { cwd, stdout: "pipe", stderr: "ignore" });
-  return p.exitCode === 0 ? p.stdout.toString().trim() : null;
+  try {
+    const p = Bun.spawnSync(["git", ...args], { cwd, stdout: "pipe", stderr: "ignore" });
+    return p.exitCode === 0 ? p.stdout.toString().trim() : null;
+  } catch { return null; } // missing cwd (a removed worktree)
 };
 
 /** The branch pull requests target: the policy's `base`, else origin/HEAD, else main or master. */
@@ -32,7 +36,7 @@ export async function main(): Promise<number> {
   if (git(["rev-parse", "--is-inside-work-tree"], cwd) !== "true") return 0;
   const policy = parseAutonomy(loadConfig(cwd));
   if (!policy || !policy.push.length) return 0;
-  console.log(JSON.stringify({ hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: policyContext(policy, baseBranch(cwd, policy.base), CLEANUP) } }));
+  console.log(JSON.stringify({ hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: policyContext(policy, baseBranch(cwd, policy.base), CLEANUP, RISK) } }));
   return 0;
 }
 
