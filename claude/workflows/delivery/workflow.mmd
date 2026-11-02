@@ -20,7 +20,7 @@ flowchart TD
     DOD -- pass, more slices --> S3
     DOD -- pass --> SHIP["Ship: push feature branch + open PR + Auto-fix - autonomy policy (v3), else ask"]
     SHIP --> S4["4 Verify - classify_change.ts"]
-    S4 --> RV[defect-first-review - always]
+    S4 --> RV[engineering:code-review - always]
     S4 -. security signal .-> SEC["security-review + scan_secrets.ts"]
     S4 -. perf signal .-> PERF["performance-review + bench_stats.ts"]
     S4 -. CI or infra signal .-> CI["ci-cd-pipeline + audit_ci.ts"]

@@ -2,25 +2,28 @@
 /**
  * Merge risk of a pull request or branch: `low`, `medium` or `breaking`, with the reasons, the merge
  * route the project's policy allows, the CI state, and the evidence a person needs to approve it.
- * Run it in the session that reviewed the change (after defect-first-review), so the risk call and the
+ * Run it in the session that reviewed the change (after engineering:code-review), so the risk call and the
  * review verdict come from the same reading of the code.
  *
  * Usage: pr_risk.ts [-C PATH] (--pr N | --base BRANCH) [--review ok|fix|blocking] [--json]
  *   --pr      a GitHub pull request, read with `gh pr view` and `gh pr diff` (never checked out)
  *   --base    the current branch against BRANCH (local git only; CI shows as "none")
- *   --review  the defect-first-review verdict: ok (no findings or P3 only), fix (P2), blocking (P0/P1)
+ *   --review  the engineering:code-review verdict: blocking (any Critical or High finding), fix (Medium),
+ *             ok (Low or none)
  *
- * The level is a floor computed from the diff and commits; the reviewer may raise it, never lower it.
+ * The level is a floor computed from the diff and commits; the reviewer may raise it, never lower it, and
+ * when unsure between medium and breaking, treats it as breaking.
  *   breaking  a breaking-change commit or PR title (`feat!:`, `BREAKING CHANGE:`), a destructive migration,
  *             or a public contract (OpenAPI, proto, GraphQL) that lost lines or was deleted
- *   medium    a required security, migration, performance, CI/infra or dependency gate; a major version
- *             bump; size L or XL; a public surface or contract change; source changed without tests; or a
- *             review verdict of `fix`
+ *   medium    a required security, migration, performance, CI/infra or dependency gate; a major dependency
+ *             bump; size L or XL; a public surface or contract change (with or without docs); source changed
+ *             without tests; or a review verdict of `fix`
  *   low       none of these
  * Route, from `autonomy.merge` in .claude/delivery.json, e.g. {"low": "green", "medium": "decide"}:
- *   low: "green" merges on green; medium: "decide" (Claude merges on green or asks with evidence) or
- *   "green"; breaking always needs the user's approval with evidence. Without the key, every merge does.
- *   A `blocking` review means fix first, whatever the level.
+ *   low: "green" merges on green; medium: "decide" (Claude merges on green, blocks it, or asks with
+ *   evidence) or "green"; breaking always waits for the user's review and approval, with evidence. Without
+ *   the key, every merge asks. A `blocking` review means fix first, whatever the level. A PR the script
+ *   couldn't read whole (over 100 files, or no diff) needs the user too.
  * Read-only. Exit 0; 2 on errors (no gh, unknown PR, not a repository).
  */
 import { parseArgs } from "node:util";
@@ -33,18 +36,24 @@ export type Ci = "green" | "pending" | "red" | "none";
 export interface Risk {
   level: Level;
   reasons: string[];
-  route: "merge on green" | "Claude decides" | "needs your approval" | "fix first";
+  route: "merge on green" | "Claude decides: merge on green, block, or ask" | "needs your approval" | "fix first";
   /** true when the policy lets Claude merge without asking (once CI is green) */
   auto: boolean;
   ci: Ci;
   pr: number | null;
   head: string | null;
   draft: boolean;
+  /** why the script couldn't read the whole PR, when it couldn't */
+  incomplete: string | null;
   evidence: string[];
 }
 
 const CONTRACT = /(^|\/)(openapi|swagger)[^/]*\.(ya?ml|json)$|\.proto$|\.graphql$|\.gql$|(^|\/)schema\.graphql$/i;
 const BREAKING_COMMIT = /^\w+(\([^)]*\))?!:|^BREAKING[ -]CHANGE:/m;
+const PUBLIC = /(^|\/)(api|public|routes?|openapi|proto|graphql|sdk|cli)(\/|\.|$)/i;
+// Dependency-update titles from Renovate ("chore(deps): update helm release loki to v20") and Dependabot
+// ("Bump lodash from 4.17.21 to 5.0.0").
+const DEP_TITLE = /\((?:deps|deps-dev)\)|\b(?:dependency|dependencies|docker tag|helm release|module|action|digest)\b|^bump\b/i;
 const UI = /\.(tsx|jsx|vue|svelte|css|scss|sass|less|html)$|(^|\/)(web|ui|frontend|components|pages|screens|views)\//i;
 const MOBILE = /\.(swift|kt|kts|dart)$|(^|\/)(ios|android)\//i;
 const SERVICE = /(^|\/)(api|routes?|handlers?|server|controllers?|services?)\/|(^|\/)(openapi|swagger)[^/]*\.(ya?ml|json)$|\.proto$/i;
@@ -72,15 +81,22 @@ export function assess(c: Classification, files: FileChange[], messages: string[
   gate("performance", "performance gate");
   gate("infra", "CI/infra change");
   gate("dependencies", "dependency change");
-  // Renovate/Dependabot titles: "update X to v2" is a major bump; "to v1.2.3" isn't.
-  const major = messages.map((m) => m.split("\n")[0]).find((h) => /\b(?:update|bump|upgrade)\b.*\bto v?\d+\s*(?:$|\(|\[)/i.test(h));
-  if (major) medium.push(`major version bump: ${major.slice(0, 80)}`);
+  if (messages.map((m) => m.split("\n")[0]).find(majorBump)) medium.push(`major version bump: ${messages.map((m) => m.split("\n")[0]).find(majorBump)!.slice(0, 80)}`);
   if (c.size === "L" || c.size === "XL") medium.push(`size ${c.size} (+${c.totals.added}/-${c.totals.deleted})`);
-  if (c.gates.docs.level !== "skip") medium.push("public surface changed");
+  const surface = c.changed.filter((f) => PUBLIC.test(f) && !TEST.test(f));
+  if (surface.length) medium.push(`public surface changed: ${surface.slice(0, 3).join(", ")}`);
   if (c.gates.tests.level === "required") medium.push(`source changed without tests: ${c.gates.tests.signals.slice(0, 3).map((s) => s.file).join(", ")}`);
   if (review === "fix") medium.push("review found P2 issues");
   const level: Level = breaking.length ? "breaking" : medium.length ? "medium" : "low";
   return { level, reasons: breaking.length ? breaking : medium.length ? [...new Set(medium)] : ["no risk signal: small change, tests alongside, no sensitive paths"] };
+}
+
+/** A dependency update that crosses a major version: "to v2" (Renovate) or "from 4.x to 5.0" (Dependabot). */
+export function majorBump(title: string): boolean {
+  if (!DEP_TITLE.test(title)) return false;
+  const fromTo = /\bfrom v?(\d+)[\w.+-]*\s+to v?(\d+)/i.exec(title);
+  if (fromTo) return Number(fromTo[2]) > Number(fromTo[1]);
+  return /\bto v?\d+\s*(?:$|\(|\[)/i.test(title);
 }
 
 /** What the policy lets Claude do with a PR of this level. */
@@ -88,7 +104,7 @@ export function routeFor(level: Level, merge: Autonomy["merge"] | null, review?:
   if (review === "blocking") return { route: "fix first", auto: false };
   if (level === "low" && merge?.low === "green") return { route: "merge on green", auto: true };
   if (level === "medium" && merge?.medium === "green") return { route: "merge on green", auto: true };
-  if (level === "medium" && merge?.medium === "decide") return { route: "Claude decides", auto: true };
+  if (level === "medium" && merge?.medium === "decide") return { route: "Claude decides: merge on green, block, or ask", auto: true };
   return { route: "needs your approval", auto: false };
 }
 
@@ -105,27 +121,29 @@ export function ciState(rollup: { status?: string; conclusion?: string; state?: 
 }
 
 /**
- * The evidence an approval needs, adapted to what the change touches. Low risk needs only test results
- * and CI; medium and breaking add proof that the feature works in the product, plus the project's own
- * items (`evidence` in .claude/delivery.json).
+ * The evidence an approval needs, facing the product and adapted to what the change touches: what a user
+ * would see (screenshots, a recording, a live demo, a cluster run), backed by well-defined test results.
+ * Low risk needs only test results and CI. The project adds its own items (`evidence` in .claude/delivery.json).
  */
 export function evidenceFor(changed: string[], level: Level, extra: string[] = []): string[] {
   const code = changed.filter((f) => !TEST.test(f));
-  const out = [
-    "Test results: the commands run, exit codes and pass/fail counts; name the new tests and show they fail without the change.",
+  const tests = [
+    "Test results: the commands run, exit codes and pass/fail counts; name the tests that cover the feature and show the new ones fail without the change.",
     "CI on the head commit: green, with a link to the run.",
   ];
-  if (level === "low") return out;
-  if (code.some((f) => UI.test(f))) out.push("Screenshots of each changed screen, before and after.", "A short screen recording (GIF or video) of the main flow working end to end.");
-  if (code.some((f) => MOBILE.test(f))) out.push("Simulator screenshots of the changed screens, and a recording of the flow.");
-  if (code.some((f) => SERVICE.test(f))) out.push("Live demo against a running instance: the requests and responses that show the feature working (and failing safely).");
-  if (code.some((f) => DEPLOY.test(f))) out.push("A run on a local cluster (kind or minikube), or the rendered manifests diff: commands and output.");
-  if (code.some((f) => CLI.test(f) && !SERVICE.test(f))) out.push("A command transcript showing the new behaviour.");
-  if (level === "breaking") out.push("Upgrade path: what callers or operators must change, and how to roll back.");
-  return [...out, ...extra];
+  if (level === "low") return tests;
+  const product: string[] = [];
+  if (code.some((f) => UI.test(f))) product.push("Screenshots of each changed screen, before and after.", "A short screen recording (GIF or video) of the feature being used end to end.");
+  if (code.some((f) => MOBILE.test(f))) product.push("Simulator screenshots of the changed screens, and a recording of the flow.");
+  if (code.some((f) => SERVICE.test(f))) product.push("Live demo against a running instance: the requests a client sends and what comes back, working and failing safely.");
+  if (code.some((f) => DEPLOY.test(f))) product.push("A run on a local cluster (kind or minikube) showing the product working with the change: commands and output.");
+  if (code.some((f) => CLI.test(f) && !SERVICE.test(f))) product.push("A command transcript showing the new behaviour as a user runs it.");
+  if (!product.length) product.push("A demo of the feature from the user's side: what they do and what they see (screenshot, recording or transcript).");
+  if (level === "breaking") product.push("Upgrade path: what users, callers or operators must change, and how to roll back.");
+  return [...product, ...tests, ...extra];
 }
 
-const run = (cmd: string[], cwd: string, timeout = 20_000) => {
+const run = (cmd: string[], cwd: string, timeout: number) => {
   try {
     const p = Bun.spawnSync(cmd, { cwd, stdout: "pipe", stderr: "pipe", timeout });
     return p.exitCode === 0 ? p.stdout.toString() : null;
@@ -133,18 +151,23 @@ const run = (cmd: string[], cwd: string, timeout = 20_000) => {
 };
 
 /** Read a PR (with gh) or the current branch against a base, and assess it. Returns an error string on failure. */
-export async function prRisk(cwd: string, target: { pr?: number; base?: string }, review?: Verdict): Promise<Risk | string> {
+export async function prRisk(cwd: string, target: { pr?: number; base?: string }, review?: Verdict, timeoutMs = 40_000): Promise<Risk | string> {
+  const deadline = Date.now() + timeoutMs;
+  const left = () => Math.max(1, deadline - Date.now());
   const config = loadConfig(cwd);
   const merge = parseAutonomy(config)?.merge ?? null;
   const extra = Array.isArray(config.evidence) ? config.evidence.filter((s: unknown): s is string => typeof s === "string") : [];
-  let c: Classification, files: FileChange[], messages: string[], ci: Ci = "none", head: string | null = null, draft = false;
+  let c: Classification, files: FileChange[], messages: string[], ci: Ci = "none", head: string | null = null, draft = false, incomplete: string | null = null;
   if (target.pr !== undefined) {
-    const raw = run(["gh", "pr", "view", String(target.pr), "--json", "title,headRefOid,isDraft,files,commits,statusCheckRollup"], cwd);
+    const raw = run(["gh", "pr", "view", String(target.pr), "--json", "title,headRefOid,isDraft,files,changedFiles,commits,statusCheckRollup"], cwd, left());
     if (!raw) return `gh pr view ${target.pr} failed (is gh installed and signed in, and does the PR exist?)`;
     const v = JSON.parse(raw);
     const map = new Map<string, FileChange>((v.files ?? []).map((f: { path: string; additions: number; deletions: number }) =>
       [f.path, { path: f.path, added: f.additions, deleted: f.deletions, binary: false, addedLines: [] }]));
-    attachAddedLines(run(["gh", "pr", "diff", String(target.pr)], cwd) ?? "", map);
+    const patch = run(["gh", "pr", "diff", String(target.pr)], cwd, left());
+    if (patch === null) incomplete = "couldn't read the PR's diff";
+    else if ((v.changedFiles ?? 0) > map.size) incomplete = `the PR changes ${v.changedFiles} files and only ${map.size} could be read`;
+    attachAddedLines(patch ?? "", map);
     files = [...map.values()];
     c = classify(files, config);
     messages = [v.title ?? "", ...(v.commits ?? []).map((m: { messageHeadline?: string; messageBody?: string }) => `${m.messageHeadline ?? ""}\n\n${m.messageBody ?? ""}`)];
@@ -157,17 +180,22 @@ export async function prRisk(cwd: string, target: { pr?: number; base?: string }
     const collected = await collect(cwd, r.diffArgs, false);
     files = typeof collected === "string" ? [] : collected;
     c = r;
-    messages = (run(["git", "log", "--format=%B%x00", `${r.target.merge_base}..HEAD`], cwd) ?? "").split("\0").map((s) => s.trim()).filter(Boolean);
-    head = run(["git", "rev-parse", "HEAD"], cwd)?.trim() ?? null;
+    messages = (run(["git", "log", "--format=%B%x00", `${r.target.merge_base}..HEAD`], cwd, left()) ?? "").split("\0").map((s) => s.trim()).filter(Boolean);
+    head = run(["git", "rev-parse", "HEAD"], cwd, left())?.trim() ?? null;
   }
-  const { level, reasons } = assess(c, files, messages, review);
-  return { level, reasons, ...routeFor(level, merge, review), ci, pr: target.pr ?? null, head, draft, evidence: evidenceFor(c.changed, level, extra) };
+  const assessed = assess(c, files, messages, review);
+  // Partial data can hide a breaking signal: rate it at least medium, and it needs the user.
+  const level: Level = incomplete && assessed.level === "low" ? "medium" : assessed.level;
+  const reasons = incomplete ? [`incomplete: ${incomplete}`, ...assessed.reasons.filter((x) => !x.startsWith("no risk signal"))] : assessed.reasons;
+  const route = incomplete ? { route: "needs your approval" as const, auto: false } : routeFor(level, merge, review);
+  return { level, reasons, ...route, ci, pr: target.pr ?? null, head, draft, incomplete, evidence: evidenceFor(c.changed, level, extra) };
 }
 
 export function render(r: Risk): string {
   const lines = [`risk: ${r.level} · route: ${r.route} · CI: ${r.ci}${r.draft ? " · draft" : ""}${r.pr !== null ? ` · PR #${r.pr}` : ""}${r.head ? ` (head ${r.head.slice(0, 7)})` : ""}`];
+  if (r.level === "breaking") lines.push("  never merge it yourself: wait for the user's review and approval");
   for (const why of r.reasons) lines.push(`  - ${why}`);
-  lines.push(r.auto ? "evidence (summarise in the PR; merge once CI is green):" : "evidence for the approval request:");
+  lines.push(r.auto ? "evidence (summarise in the PR; give it in full if you ask instead of merging):" : "evidence for the approval request (product-facing):");
   for (const e of r.evidence) lines.push(`  - ${e}`);
   return lines.join("\n");
 }

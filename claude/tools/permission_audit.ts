@@ -65,10 +65,11 @@ export function causeOf(pd: Any, hook: { decision: string; reason: string } | un
   return [pd.reasonType, pd.reasonCode].filter(Boolean).join(" ") || "permission rules";
 }
 
-export function outcomeOf(pd: Any): string | null {
+/** `denial` is the entry's `toolDenialKind`: a decline of a prompt is recorded as source "config", kind "user-rejected". */
+export function outcomeOf(pd: Any, denial?: string): string | null {
   const user = String(pd.source ?? "").startsWith("user");
   if (pd.decision === "accept") return user ? "you approved" : null;
-  if (user) return "you declined";
+  if (user || denial === "user-rejected") return "you declined";
   if (pd.reasonType === "classifier") return "auto mode blocked";
   if (pd.source === "hook") return "hook blocked";
   return "rule blocked";
@@ -96,7 +97,7 @@ export function scanTranscript(text: string, meta: { project: string; session: s
     if (since && String(e.timestamp ?? "") < since) continue;
     for (const c of content) {
       if (c?.type !== "tool_result") continue;
-      const outcome = outcomeOf(pd);
+      const outcome = outcomeOf(pd, e.toolDenialKind);
       if (!outcome) { const k = `${pd.source}${pd.reasonType ? `/${pd.reasonType}` : ""}`; auto[k] = (auto[k] ?? 0) + 1; continue; }
       const use = uses.get(c.tool_use_id);
       stops.push({ time: String(e.timestamp ?? ""), ...meta, tool: use?.name ?? "?", outcome, cause: causeOf(pd, hooks.get(c.tool_use_id)), input: summarize(use?.input) });

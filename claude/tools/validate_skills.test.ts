@@ -43,8 +43,8 @@ test("missing script, broken link and unknown engineering skill are errors", () 
 });
 
 test("turned-off engineering skills are warnings; links inside code fences are ignored", () => {
-  skill("d-skill", "Prefer this over engineering:code-review.\n```\n[not a link](nowhere.md)\n```");
-  expect(messages()).toEqual(["warning: mentions engineering:code-review, which is turned off (G-14); fine only as a \"prefer this over\" note"]);
+  skill("d-skill", "Prefer this over engineering:incident-response.\n```\n[not a link](nowhere.md)\n```");
+  expect(messages()).toEqual(["warning: mentions engineering:incident-response, which is turned off (G-14); fine only as a \"prefer this over\" note"]);
 });
 
 test("over-long description is an error", () => {

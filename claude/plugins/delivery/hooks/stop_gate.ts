@@ -16,7 +16,7 @@
  * the policy, unless the user's last message asked to hold. Edits made on the base branch get told to
  * move to a feature branch. Never more than once per session.
  *
- * v3.2: shipping includes review. The ship nudge asks for `defect-first-review` first when the session
+ * v3.2: shipping includes review. The ship nudge asks for `engineering:code-review` first when the session
  * hasn't run it (itself or in a subagent); a session that opened a PR with code changes and no review
  * gets one nudge to review it. Docs-only changes, `"review": false` and a hold skip both.
  *
@@ -38,7 +38,9 @@ interface State { qualityBlocks: number; reviewBlocks: string[]; shipNudged?: bo
 type Any = any;
 
 const EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
-const DOCS = /\.(md|mdx|rst|txt|adoc)$/i;
+// Docs, for the review nudge. Plain `.txt` only under docs/: requirements.txt and CMakeLists.txt are code.
+const DOCS = /\.(md|mdx|rst|adoc)$|(^|\/)docs?\/.*\.txt$/i;
+export const isDocs = (f: string) => DOCS.test(f);
 
 export function sessionEdited(uses: { name: string; input: Any }[]): boolean {
   return uses.some((u) => EDIT_TOOLS.has(u.name) || (u.name === "Bash" && /\bsed\s+-i\b|\bgit\b[^|;&]*\bcommit\b|\bpatch\b\s+-p|\btee\b|(^|[^0-9&])>\s*[\w./-]+\.\w+/.test(String(u.input.command ?? ""))));
@@ -109,9 +111,25 @@ export async function unshipped(cwd: string, policy: Autonomy, uses: { name: str
   return null;
 }
 
-const reviewStep = (base: string) => `review the branch with the \`defect-first-review\` skill against ${base}: fix P0/P1 before pushing and list P2/P3 in the PR description`;
+const reviewStep = (base: string) => `review the branch with the \`engineering:code-review\` skill against ${base}: fix Critical and High findings before pushing and list Medium and Low ones in the PR description`;
 
 /** `reviewAgainst`: the base branch, when the change still needs its review before it ships. */
+/**
+ * True when a feature branch the policy ships (in any worktree) changes more than docs against the base, so a
+ * session that sits in the main checkout and works in `.claude/worktrees/<branch>` still gets the review step.
+ */
+async function codeOnBranches(cwd: string, policy: Autonomy): Promise<boolean> {
+  const base = baseBranch(cwd, policy.base);
+  for (const w of await worktrees(cwd)) {
+    if (!w.branch || w.branch === base || !policy.push.some((g) => globMatch(g, w.branch!))) continue;
+    const ref = (await git(["rev-parse", "--verify", "--quiet", `origin/${base}`], w.path)) ? `origin/${base}` : base;
+    const mb = await git(["merge-base", "HEAD", ref], w.path);
+    const files = [...((mb ? await git(["diff", "--name-only", mb], w.path) : null) ?? "").split("\n"), ...((await git(["status", "--porcelain"], w.path)) ?? "").split("\n").map((l) => l.slice(3))];
+    if (files.some((f) => f.trim() && !DOCS.test(f) && !f.startsWith(".claude/"))) return true;
+  }
+  return false;
+}
+
 export function shipMessage(why: string, policy: Autonomy, reviewAgainst?: string): string {
   return [
     `Delivery autonomy (.claude/delivery.json, approved by the user): the checks pass, but ${why}.`,
@@ -168,7 +186,8 @@ export async function main(): Promise<number> {
     const policy = parseAutonomy(config);
     const hold = asksToHold(haveTranscript ? lastUserPrompt(readFileSync(input.transcript_path!, "utf8")) : "");
     const why = policy && p.ok && !state.shipNudged && !hold ? await unshipped(cwd, policy, uses) : null;
-    const reviewDue = !!policy?.review && p.ok && !hold && !state.reviewNudged && p.changed.some((f) => !DOCS.test(f)) && !reviewed(uses);
+    const reviewDue = !!policy?.review && p.ok && !hold && !state.reviewNudged && !reviewed(uses)
+      && (p.changed.some((f) => !DOCS.test(f)) || await codeOnBranches(cwd, policy));
     const save = () => { try { mkdirSync(stateDir, { recursive: true }); writeFileSync(statePath, JSON.stringify(state)); } catch { /* best effort */ } };
     const forPr = notes.length ? `\nNotes for the PR description: ${notes.join("; ")}` : "";
     if (why && policy) {

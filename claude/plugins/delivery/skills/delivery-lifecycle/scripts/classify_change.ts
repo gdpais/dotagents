@@ -180,7 +180,7 @@ export function classify(changes: FileChange[], config: Config = {}) {
 
   const next: string[] = [];
   if (gates.tests.level === "required" || reviewed.some((f) => SOURCE.test(f.path))) next.push("quality_gate.ts --run all");
-  if (gates.review.level !== "skip") next.push(fanOut ? "defect-first-review (fan out lenses)" : "defect-first-review");
+  if (gates.review.level !== "skip") next.push("engineering:code-review");
   if (gates.security.level === "required") next.push("security-review + scan_secrets.ts");
   if (gates.performance.level === "required") next.push("performance-review");
   if (gates.infra.level === "required") next.push("ci-cd-pipeline (audit)");

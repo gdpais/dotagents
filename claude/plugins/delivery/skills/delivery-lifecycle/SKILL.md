@@ -1,6 +1,6 @@
 ---
 name: delivery-lifecycle
-description: "Run software work end to end with gates: plan to a Definition of Ready, verify by what the diff touches (review, security, performance, migrations, CI), release with version and changelog. Use for \"take this from idea to production\", \"what's the next step\", \"is this ready to merge / ship\", \"cut or prepare a release\", \"what version is next\", \"changelog\", \"scan for leaked secrets\", \"run the quality gate\". Routine post-edit checks already run via this plugin's hooks. Single stages: feature-planning, defect-first-review, security-review, performance-review, ci-cd-pipeline, engineering:deploy-checklist; production problems: sre-incident-lifecycle."
+description: "Run software work end to end with gates: plan to a Definition of Ready, verify by what the diff touches (review, security, performance, migrations, CI), release with version and changelog. Use for \"take this from idea to production\", \"what's the next step\", \"is this ready to merge / ship\", \"cut or prepare a release\", \"what version is next\", \"changelog\", \"scan for leaked secrets\", \"run the quality gate\". Routine post-edit checks already run via this plugin's hooks. Single stages: feature-planning, engineering:code-review, security-review, performance-review, ci-cd-pipeline, engineering:deploy-checklist; production problems: sre-incident-lifecycle."
 ---
 
 # Delivery Lifecycle
@@ -31,7 +31,7 @@ bun scripts/cleanup_merged.ts -C <repo> [--dry-run] [BRANCH...]   # after merges
 bun scripts/pr_risk.ts -C <repo> (--pr <n> | --base <branch>) [--review ok|fix|blocking]   # low / medium / breaking, merge route, CI, evidence to collect
 ```
 
-`preflight` lists `reviews` when the diff needs judgment: security → `security-review`, performance → `performance-review`, migrations → `engineering:deploy-checklist`, CI files → `ci-cd-pipeline`. Run only those, plus `defect-first-review` for anything that will merge. Projects tune paths and checks in `.claude/delivery.json` (`hotPaths`, `securityPaths`, `ignore`, `preflight.run`, `stopGate`, `evidence`, `autonomy`).
+`preflight` lists `reviews` when the diff needs judgment: security → `security-review`, performance → `performance-review`, migrations → `engineering:deploy-checklist`, CI files → `ci-cd-pipeline`. Run only those, plus `engineering:code-review` for anything that will merge. Projects tune paths and checks in `.claude/delivery.json` (`hotPaths`, `securityPaths`, `ignore`, `preflight.run`, `stopGate`, `evidence`, `autonomy`).
 
 ## Gates
 
@@ -46,7 +46,7 @@ Each line is `pass`, `fail`, `n/a (why)` or `not verified (why)`; a check you di
 
 When `.claude/delivery.json` has an `autonomy` block, the user has approved these steps once; the policy is added to the session at start. Then, without stopping to offer each step:
 
-1. **Ship** a finished slice: preflight passes → `defect-first-review` against the base (fix P0/P1; list P2/P3 in the PR; `"review": false` skips it) → commit → merge the base branch in → push the branch (only names in `autonomy.push`) → open the PR (`openPr`) → turn on PR monitoring / Auto-fix when the host offers it (`autoFix`).
+1. **Ship** a finished slice: preflight passes → `engineering:code-review` against the base (fix Critical and High; list Medium and Low in the PR; `"review": false` skips it) → commit → merge the base branch in → push the branch (only names in `autonomy.push`) → open the PR (`openPr`) → turn on PR monitoring / Auto-fix when the host offers it (`autoFix`).
 2. **Merge by risk** (`autonomy.merge`, below).
 3. **Clean up** when told or shown that a PR merged (`cleanupMerged`): run `cleanup_merged.ts` once from the main checkout and relay its lines; don't repeat its git steps by hand. It deletes only branches contained in the remote base (`git branch -d`), and keeps dirty worktrees and squash-merged or closed branches, giving the reason for each; deleting those needs the user.
 4. **Continue** (`continue.backlog`): start the next backlog item whose dependencies are merged, and keep going until no unblocked item is left. Skip items that need a decision.
@@ -55,17 +55,17 @@ Stop for real decisions only, and put every question in one message: a merge the
 
 ## Merge by risk
 
-The session that reviews a PR also rates it and owns its merge decision; it doesn't hand the rating to another session. After `defect-first-review`, run `pr_risk.ts --pr <n> --review <verdict>`. It rates the PR from the diff and commits, and that rating is a floor: raise it when the review shows more risk, never lower it.
+The session that reviews a PR with `engineering:code-review` also rates it and owns its merge decision; it doesn't hand the rating to another session. After the review, run `pr_risk.ts --pr <n> --review <verdict>`: `blocking` for any Critical or High finding, `fix` for Medium, `ok` for Low or none. It rates the PR from the diff and commits, and that rating is a floor: raise it when the review shows more risk, never lower it. Unsure between medium and breaking? Treat it as breaking.
 
 | Risk | What makes it | Route with `"merge": {"low": "green", "medium": "decide"}` |
 |---|---|---|
 | low | none of the signals below | merge on green |
-| medium | security, migration, performance, CI/infra or dependency gate; major version bump; size L/XL; public surface or contract change; source without tests; P2 findings | your call: merge on green when the review found nothing above P3 and the evidence shows the feature working; otherwise ask, with evidence |
-| breaking | `feat!:` or `BREAKING CHANGE:`, destructive migration, a public contract (OpenAPI, proto, GraphQL) that lost lines | always ask, with evidence |
+| medium | security, migration, performance, CI/infra or dependency gate; major dependency bump; size L/XL; public surface or contract change; source without tests; Medium findings | your call, one of three: **merge on green** when the review is `ok` and the evidence shows the feature working; **block** (don't merge; fix it, or say why it can't merge) when the review found Critical or High issues or the change isn't right yet; **ask** the user, with evidence that the feature works and why it should merge |
+| breaking | `feat!:` or `BREAKING CHANGE:`, destructive migration, a public contract (OpenAPI, proto, GraphQL) that lost lines, or any doubt | never merge it yourself: wait for the user's review and approval, and always give evidence that the feature works |
 
-Never merge with an open P0/P1 or red CI. Without `autonomy.merge` every merge asks. The Bash hook enforces this: `gh pr merge <n>` passes only when this session ran the review and `pr_risk.ts --pr <n>`, the risk it recomputes is one the policy merges, and CI is green.
+Never merge with a blocking review or red CI. A PR `pr_risk.ts` couldn't read whole (over 100 files, or no diff) needs the user. Without `autonomy.merge` every merge asks. The Bash hook enforces this: `gh pr merge <n>` on this repository passes only when this session ran the review and then `pr_risk.ts --pr <n> --review <verdict>` with a verdict that isn't blocking, the risk it recomputes with that verdict is one the policy merges, and CI is green.
 
-**Evidence** for an approval adapts to the project. `pr_risk.ts` lists what fits the diff: screenshots and a short recording for UI changes (browser pane, Chrome GIF, simulator), a live demo against a running instance for services, a local-cluster run for charts and infra, a command transcript for CLIs, and always the test results (commands, exit codes, counts, and the new tests that fail without the change) plus CI. Projects add their own items in `"evidence": [...]`. Produce it, send the files with the ask, and summarise it in the PR.
+**Evidence** faces the product and fits the project; `pr_risk.ts` lists what fits the diff. Screenshots of the UI and a short recording of the feature in use (browser pane, Chrome GIF, simulator), a live demo against a running instance for services (the requests a client sends and what comes back), a local-cluster run for charts and infra, a command transcript for CLIs, and always well-defined test results (commands, exit codes, counts, which tests cover the feature, and the new ones failing without the change) plus CI. Projects add their own items in `"evidence": [...]`. Produce it, send the files with the ask, and summarise it in the PR.
 
 **Long sessions** with several features, worktrees and sub-sessions: each PR gets its own review, rating and route. Merge in dependency order, clean up after each merge, and bring dependent branches up to date with the base before their own review. Collect every approval request into one message, with one block per PR: risk and reasons, review verdict, CI, evidence.
 

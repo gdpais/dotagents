@@ -23,12 +23,11 @@ Working copies of the Claude skills: the incident, RCA, review and COO skills po
 | incident-postmortem | incident-response | Blameless postmortem after the Google SRE example |
 | tech-email | incident-response | Technical email, only when explicitly asked |
 | rca-investigation | rca | Evidence-led root cause analysis |
-| defect-first-review | code-review | Code review that leads with defects |
 | coo-portfolio-review | coo-review | Portfolio review, on demand, stored under the project where it runs |
 
 The delivery skills (`delivery-lifecycle`, `feature-planning`, `performance-review`, `ci-cd-pipeline`) ship in the `delivery` plugin.
 
-Turn off `engineering:incident-response` and `engineering:code-review` in the app when these are installed (G-14). The delivery workflow relies on the built-in `security-review` and on `engineering:deploy-checklist`, `architecture`, `system-design`, `testing-strategy`, `debug`, `tech-debt` and `documentation`; keep those on.
+Turn off `engineering:incident-response` in the app when it is installed (G-14). Keep `engineering:code-review` on: it is the delivery workflow's reviewer (G-46). The delivery workflow also relies on the built-in `security-review` and on `engineering:deploy-checklist`, `architecture`, `system-design`, `testing-strategy`, `debug`, `tech-debt` and `documentation`; keep those on.
 
 ## Install the delivery plugin
 

@@ -34,7 +34,7 @@ test("assess: low for a small change with tests; medium on gates, size and missi
 test("routeFor: the policy decides low and medium; breaking and blocking reviews never merge alone", () => {
   const merge = parseAutonomy({ autonomy: { merge: { low: "green", medium: "decide" } } })!.merge;
   expect(routeFor("low", merge)).toEqual({ route: "merge on green", auto: true });
-  expect(routeFor("medium", merge)).toEqual({ route: "Claude decides", auto: true });
+  expect(routeFor("medium", merge)).toEqual({ route: "Claude decides: merge on green, block, or ask", auto: true });
   expect(routeFor("breaking", merge)).toEqual({ route: "needs your approval", auto: false });
   expect(routeFor("low", merge, "blocking")).toEqual({ route: "fix first", auto: false });
   expect(routeFor("low", null)).toEqual({ route: "needs your approval", auto: false });

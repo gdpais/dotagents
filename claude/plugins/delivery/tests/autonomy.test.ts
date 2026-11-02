@@ -98,30 +98,58 @@ test("bash guard: the policy covers feature pushes and local clusters, nothing e
   expect(outsidePolicy(`gh pr merge "$n" --merge`, policy, "/nonexistent", () => null, merges)).toBe("gh pr merge");
 });
 
-test("merge by risk: only PRs this session reviewed and assessed, at a level the policy merges, with CI green", async () => {
+test("merge by risk: only PRs this session reviewed and then assessed, at a level the policy merges, with CI green", async () => {
   const merging = parseAutonomy({ autonomy: { ...POLICY.autonomy, merge: { low: "green", medium: "decide" } } })!;
-  const review = { name: "Skill", input: { skill: "delivery:defect-first-review" } };
-  const assess = (n: number) => ({ name: "Bash", input: { command: `bun /x/scripts/pr_risk.ts -C . --pr ${n} --review ok` } });
-  const risk = (by: Record<number, Partial<Risk>>) => async (_cwd: string, t: { pr?: number }) =>
-    ({ level: "low", reasons: ["no risk signal"], route: "merge on green", auto: true, ci: "green", pr: t.pr!, head: "abc", draft: false, evidence: [], ...by[t.pr!] }) as Risk;
-  const uses = [review, assess(1), assess(2), assess(3), assess(4)];
+  const review = { name: "Skill", input: { skill: "engineering:code-review" } };
+  const assess = (n: number, verdict = "ok") => ({ name: "Bash", input: { command: `bun /x/scripts/pr_risk.ts -C . --pr ${n} --review ${verdict}` } });
+  const seen: { pr?: number; review?: string }[] = [];
+  const risk = (by: Record<number, Partial<Risk>>) => async (_cwd: string, t: { pr?: number }, verdict?: string) => {
+    seen.push({ pr: t.pr, review: verdict });
+    return ({ level: "low", reasons: ["no risk signal"], route: "merge on green", auto: true, ci: "green", pr: t.pr!, head: "abc", draft: false, incomplete: null, evidence: [], ...by[t.pr!] }) as Risk;
+  };
+  const uses = [review, assess(1), review, assess(2), review, assess(3), review, assess(4)];
   const r = await policyMerges([1, 2, 3, 4, 5], merging, "/x", uses, risk({ 2: { level: "breaking", auto: false, reasons: ["breaking-change commit: feat!: x"] }, 3: { ci: "pending" }, 4: { draft: true } }));
   expect([...r.covered]).toEqual([1]);
   expect(r.why).toContain("PR #2 is breaking risk");
-  expect((await policyMerges([5], merging, "/x", uses, risk({}))).why).toContain("wasn't reviewed (defect-first-review) and assessed");
-  // Assessing before the review doesn't count; neither does a policy without merge rules.
-  expect(assessedPr([assess(7), review], 7)).toBe(false);
-  expect(assessedPr([review, assess(7)], 7)).toBe(true);
+  expect(seen[0]).toEqual({ pr: 1, review: "ok" });
+  expect((await policyMerges([5], merging, "/x", uses, risk({}))).why).toContain("wasn't reviewed with engineering:code-review and then assessed");
   expect((await policyMerges([1], policy, "/x", uses, risk({}))).covered.size).toBe(0);
-  expect(mergedPr("gh pr merge https://github.com/o/r/pull/42 --squash")).toBe(42);
+});
+
+test("merge by risk: the review verdict reaches the guard, and each review counts for the next PR only", async () => {
+  const merging = parseAutonomy({ autonomy: { ...POLICY.autonomy, merge: { low: "green", medium: "ask" } } })!;
+  const review = { name: "Skill", input: { skill: "engineering:code-review" } };
+  const run = (cmd: string) => ({ name: "Bash", input: { command: cmd } });
+  // Both reviews: a blocking verdict used to be dropped, and the diff alone rated the PR low.
+  expect((await policyMerges([7], merging, "/x", [review, run("bun /p/pr_risk.ts -C . --pr 7 --review blocking")], async () => { throw new Error("not called"); })).why).toContain("blocking");
+  let got: string | undefined;
+  await policyMerges([7], merging, "/x", [review, run("bun /p/pr_risk.ts -C . --pr 7 --review fix")], async (_c, t, v) => { got = v; return "stop"; });
+  expect(got).toBe("fix");
+  // No verdict, an echo, or one review covering two PRs: not assessed.
+  expect(assessedPr([review, run("bun /p/pr_risk.ts --pr 7")], 7)).toBeNull();
+  expect(assessedPr([review, run("echo bun /p/pr_risk.ts --pr 7 --review ok")], 7)).toBeNull();
+  expect(assessedPr([review, run("bun /p/pr_risk.ts --pr 6 --review ok"), run("bun /p/pr_risk.ts --pr 7 --review ok")], 7)).toBeNull();
+  expect(assessedPr([run("bun /p/pr_risk.ts --pr 7 --review ok"), review], 7)).toBeNull();
+  expect(assessedPr([review, run(`cd /repo && bun "/p/pr_risk.ts" -C . --pr=7 --review ok`)], 7)).toBe("ok");
+  // One deadline for all the GitHub calls: out of time means asking.
+  expect((await policyMerges([7], parseAutonomy({ autonomy: { ...POLICY.autonomy, merge: { low: "green" } } })!, "/x", [review, run("bun /p/pr_risk.ts --pr 7 --review ok")], async () => "x", 1_000)).why).toContain("in time");
+});
+
+test("mergedPr reads the PR and the repository a merge targets", () => {
+  expect(mergedPr("gh pr merge https://github.com/o/r/pull/42 --squash")).toEqual({ n: 42, repo: "github.com/o/r" });
+  expect(mergedPr("gh pr merge --squash 60 --match-head-commit 34aa34c")).toEqual({ n: 60, repo: null });
+  expect(mergedPr("gh pr merge 42 -R other/repo")).toEqual({ n: 42, repo: "other/repo" });
   expect(mergedPr("gh pr merge --squash")).toBeNull();
 });
 
 test("policyContext: merge rules by risk only when the policy has them", () => {
   const ctx = policyContext(parseAutonomy({ autonomy: { push: ["feature/*"], merge: { low: "green", medium: "decide" } } })!, "master", undefined, "/p/pr_risk.ts");
   expect(ctx).toContain('run `bun "/p/pr_risk.ts" -C <repo> --pr <n>');
-  expect(ctx).toContain("low: merge on green. medium: your call");
-  expect(ctx).toContain("breaking: always ask");
+  expect(ctx).toContain("low: merge on green. medium: your call, one of three: merge on green");
+  expect(ctx).toContain("block it (don't merge");
+  expect(ctx).toContain("breaking: never merge it yourself; wait for the user's review and approval");
+  expect(ctx).toContain("when unsure between medium and breaking, treat it as breaking");
+  expect(ctx).toContain("blocking: any Critical or High finding");
   expect(ctx).toContain("ask once for all of them");
   expect(policyContext(policy, "master")).not.toContain("Merging by risk");
 });
@@ -236,11 +264,11 @@ test("session context: adds the policy at startup, silent on resume and without 
   expect(ctx).toContain("TODO.md");
   expect(ctx).toMatch(/run `bun "\/[^"]+\/skills\/delivery-lifecycle\/scripts\/cleanup_merged\.ts" -C/);
   expect(ctx).toContain("Still stop and ask");
-  expect(ctx).toContain("`defect-first-review` skill against master");
+  expect(ctx).toContain("`engineering:code-review` skill against master");
   expect(hook(CONTEXT, { cwd: dir, source: "resume" }).out).toBe("");
   put(".claude/delivery.json", JSON.stringify({ autonomy: { ...POLICY.autonomy, review: false, workflows: ["scenarios.yml"] } }));
   const off = JSON.parse(hook(CONTEXT, { cwd: dir, source: "startup" }).out).hookSpecificOutput.additionalContext;
-  expect(off).not.toContain("defect-first-review");
+  expect(off).not.toContain("engineering:code-review");
   expect(off).toContain("`gh workflow run` for scenarios.yml");
 });
 
@@ -256,7 +284,7 @@ test("stop gate: nudges once to ship an unpushed feature branch", () => {
   expect(r.code).toBe(2);
   expect(r.err).toContain("1 commit(s) not pushed");
   expect(r.err).toContain("open the pull request against master");
-  expect(r.err).toContain("first review the branch with the `defect-first-review` skill against master");
+  expect(r.err).toContain("first review the branch with the `engineering:code-review` skill against master");
   expect(hook(STOP, { session_id: sid, transcript_path: transcript, cwd: dir, stop_hook_active: true }).code).toBe(0);
 });
 
@@ -273,7 +301,7 @@ test("stop gate: a PR opened without a review gets one review nudge; reviewed, d
   expect(r.code).toBe(2);
   expect(r.err).toContain("opened a pull request with code changes and no review");
   expect(hook(STOP, { session_id: sid, transcript_path: transcript, cwd: dir }).code).toBe(0);
-  writeFileSync(transcript, [...shipped, use("Agent", { description: "review", prompt: "Run defect-first-review on feature/2.1-x against master" })].join("\n"));
+  writeFileSync(transcript, [...shipped, use("Agent", { description: "review", prompt: "Run engineering:code-review on feature/2.1-x against master" })].join("\n"));
   expect(hook(STOP, { session_id: `rev2-${Date.now()}`, transcript_path: transcript, cwd: dir }).code).toBe(0);
   writeFileSync(transcript, shipped.join("\n"));
   put(".claude/delivery.json", JSON.stringify({ autonomy: { ...POLICY.autonomy, review: false } }));
@@ -289,8 +317,12 @@ test("hooks exit 0 quietly when the session's cwd was removed (a cleaned-up work
 });
 
 test("reviewed and openedPr read the session's tool calls", () => {
-  expect(reviewed([{ name: "Skill", input: { skill: "anthropic-skills:defect-first-review" } }])).toBe(true);
-  expect(reviewed([{ name: "Agent", input: { prompt: "Use defect-first-review on the diff" } }])).toBe(true);
+  expect(reviewed([{ name: "Skill", input: { skill: "engineering:code-review" } }])).toBe(true);
+  expect(reviewed([{ name: "Agent", input: { prompt: "Use engineering:code-review on the diff" } }])).toBe(true);
+  // The built-in /code-review, a retired reviewer, or a brief that says not to use it don't count.
+  expect(reviewed([{ name: "Skill", input: { skill: "code-review" } }])).toBe(false);
+  expect(reviewed([{ name: "Skill", input: { skill: "defect-first-review" } }])).toBe(false);
+  expect(reviewed([{ name: "Agent", input: { prompt: "Review the diff, but don't use engineering:code-review" } }])).toBe(false);
   expect(reviewed([{ name: "Skill", input: { skill: "code-review" } }])).toBe(false);
   expect(openedPr([{ name: "Bash", input: { command: "git push && gh pr create --fill" } }])).toBe(true);
   expect(openedPr([{ name: "mcp__github__create_pull_request", input: {} }])).toBe(true);
@@ -307,7 +339,7 @@ test("stop gate: no ship nudge when the user asked to hold, without a policy, or
   writeFileSync(transcript, [prompt("Implement 2.1 but don't push yet, I want to look first."), use("Write", { file_path: join(dir, "src/b.ts") })].join("\n"));
   expect(hook(STOP, { session_id: `hold-${Date.now()}`, transcript_path: transcript, cwd: dir }).code).toBe(0);
   git(dir, "add", "src/b.ts"); git(dir, "commit", "-qm", "feat: b"); git(dir, "push", "-q", "-u", "origin", "HEAD");
-  writeFileSync(transcript, [prompt("Start on TODO 2.1."), use("Write", { file_path: join(dir, "src/b.ts") }), use("Skill", { skill: "defect-first-review" }), use("Bash", { command: "git push -u origin HEAD" }), use("Bash", { command: "gh pr create --fill" })].join("\n"));
+  writeFileSync(transcript, [prompt("Start on TODO 2.1."), use("Write", { file_path: join(dir, "src/b.ts") }), use("Skill", { skill: "engineering:code-review" }), use("Bash", { command: "git push -u origin HEAD" }), use("Bash", { command: "gh pr create --fill" })].join("\n"));
   expect(hook(STOP, { session_id: `done-${Date.now()}`, transcript_path: transcript, cwd: dir }).code).toBe(0);
 });
 
@@ -349,4 +381,6 @@ test("stop gate: sees unshipped work in a worktree while the session sits on the
   const r = hook(STOP, { session_id: `wt-${Date.now()}`, transcript_path: transcript, cwd: dir });
   expect(r.code).toBe(2);
   expect(r.err).toContain("feature/2.1-x (worktree");
+  // D14: the review step follows the branch being shipped, not the session's own checkout.
+  expect(r.err).toContain("first review the branch with the `engineering:code-review` skill");
 });
