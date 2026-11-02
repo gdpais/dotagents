@@ -49,7 +49,7 @@ When `.claude/delivery.json` has an `autonomy` block, the user has approved thes
 1. **Ship** a finished slice: preflight passes → `defect-first-review` against the base (fix P0/P1; list P2/P3 in the PR; `"review": false` skips it) → commit → merge the base branch in → push the branch (only names in `autonomy.push`) → open the PR (`openPr`) → turn on PR monitoring / Auto-fix when the host offers it (`autoFix`).
 2. **Merge by risk** (`autonomy.merge`, below).
 3. **Clean up** when told or shown that a PR merged (`cleanupMerged`): run `cleanup_merged.ts` once from the main checkout and relay its lines; don't repeat its git steps by hand. It deletes only branches contained in the remote base (`git branch -d`), and keeps dirty worktrees and squash-merged or closed branches, giving the reason for each; deleting those needs the user.
-4. **Continue** (`continue.backlog`, `maxItems`): start the next backlog item whose dependencies are merged. Skip items that need a decision.
+4. **Continue** (`continue.backlog`): start the next backlog item whose dependencies are merged, and keep going until no unblocked item is left. Skip items that need a decision.
 
 Stop for real decisions only, and put every question in one message: a merge the risk rules don't cover, tag, release, deploy, pushing the base branch, force push, an ADR, cost, an open question, missing access. While blocked on the user, keep doing unblocked work. "Hold" or "don't push" from the user wins over the policy. Also covered once approved: `gh workflow run` for `autonomy.workflows`, kubectl/helm on `localClusters`; the hooks approve these outright, so auto mode doesn't stop them.
 

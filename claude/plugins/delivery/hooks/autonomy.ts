@@ -7,7 +7,7 @@
  *     "openPr": true,               // open the pull request after pushing
  *     "autoFix": true,              // turn on PR monitoring / Auto-fix when the host offers it
  *     "cleanupMerged": true,        // after a merge: remove the worktree, delete the local branch
- *     "continue": { "backlog": "TODO.md", "maxItems": 3 },   // then start the next unblocked item
+ *     "continue": { "backlog": "TODO.md" },                  // then start the next unblocked item, until none is left
  *     "localClusters": ["kind-*", "minikube"],              // kubectl/helm contexts that need no ask
  *     "workflows": ["scenarios.yml"],                       // `gh workflow run` targets that need no ask
  *     "review": true                // defect-first-review before pushing (default; false turns it off)
@@ -25,7 +25,7 @@ export interface Autonomy {
   openPr: boolean;
   autoFix: boolean;
   cleanupMerged: boolean;
-  continue: { backlog: string; maxItems: number } | null;
+  continue: { backlog: string } | null;
   localClusters: string[];
   workflows: string[];
   review: boolean;
@@ -68,7 +68,7 @@ export function parseAutonomy(config: Any): Autonomy | null {
     openPr: a.openPr !== false && strings(a.push).length > 0,
     autoFix: a.autoFix === true,
     cleanupMerged: a.cleanupMerged === true,
-    continue: c ? { backlog: typeof c.backlog === "string" ? c.backlog : "TODO.md", maxItems: Number.isInteger(c.maxItems) && c.maxItems > 0 ? c.maxItems : 3 } : null,
+    continue: c ? { backlog: typeof c.backlog === "string" ? c.backlog : "TODO.md" } : null,
     localClusters: strings(a.localClusters),
     workflows: strings(a.workflows),
     review: a.review !== false,
@@ -232,7 +232,7 @@ export function policyContext(p: Autonomy, base: string, cleanupScript?: string,
   if (p.cleanupMerged) lines.push(cleanupScript
     ? `- When the user says a PR is merged (or you see it is): run \`bun "${cleanupScript}" -C <main checkout>\` once and relay its lines. It fetches with prune, fast-forwards ${base}, removes the clean worktrees of merged branches and deletes them with \`git branch -d\`; anything unmerged or dirty is kept with the reason. Don't redo these steps by hand.`
     : `- When the user says a PR is merged (or you see it is): \`git fetch --prune\`, update ${base}, remove that branch's worktree and delete its local branch with \`git branch -d\` (never -D).`);
-  if (p.continue) lines.push(`- Then continue: start the next item in ${p.continue.backlog} whose dependencies are done (merged), up to ${p.continue.maxItems} items per request, and ship each the same way. Skip items that need a decision.`);
+  if (p.continue) lines.push(`- Then continue: start the next item in ${p.continue.backlog} whose dependencies are done (merged), and ship each the same way, until no unblocked item is left. Skip items that need a decision.`);
   if (p.localClusters.length) lines.push(`- kubectl/helm against local clusters (${p.localClusters.join(", ")}) needs no ask.`);
   if (p.workflows.length) lines.push(`- \`gh workflow run\` for ${p.workflows.join(", ")} needs no ask.`);
   const merges = p.merge.low !== "ask" || p.merge.medium !== "ask";

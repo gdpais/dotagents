@@ -17,13 +17,15 @@ const GUARD = join(ROOT, "hooks", "bash_guard.ts");
 const CONTEXT = join(ROOT, "hooks", "session_context.ts");
 const MONITOR = join(ROOT, "hooks", "pr_monitor.ts");
 const ENV = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@e.invalid", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@e.invalid", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" };
-const POLICY = { autonomy: { push: ["feature/*"], openPr: true, cleanupMerged: true, continue: { backlog: "TODO.md", maxItems: 2 }, localClusters: ["kind-*", "minikube"] } };
+const POLICY = { autonomy: { push: ["feature/*"], openPr: true, cleanupMerged: true, continue: { backlog: "TODO.md" }, localClusters: ["kind-*", "minikube"] } };
 const policy = parseAutonomy(POLICY)!;
 
 test("parseAutonomy: absent policy is null; defaults are conservative", () => {
   expect(parseAutonomy({})).toBeNull();
   expect(parseAutonomy({ autonomy: {} })).toMatchObject({ push: [], openPr: false, autoFix: false, cleanupMerged: false, continue: null, workflows: [], review: true });
-  expect(policy).toMatchObject({ push: ["feature/*"], openPr: true, continue: { backlog: "TODO.md", maxItems: 2 } });
+  expect(policy).toMatchObject({ push: ["feature/*"], openPr: true, continue: { backlog: "TODO.md" } });
+  // maxItems was dropped in 3.2 (user, 2026-11-02); an old config that still has it is read the same way.
+  expect(parseAutonomy({ autonomy: { push: ["feature/*"], continue: { backlog: "PLAN.md", maxItems: 3 } } })!.continue).toEqual({ backlog: "PLAN.md" });
   expect(parseAutonomy({ autonomy: { review: false, workflows: ["scenarios.yml", 3] } })).toMatchObject({ review: false, workflows: ["scenarios.yml"] });
 });
 
