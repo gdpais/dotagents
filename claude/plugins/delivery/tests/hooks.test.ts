@@ -40,6 +40,9 @@ test("skillUsed matches plugin-namespaced skills and SKILL.md reads", () => {
 test("bash guard classifies commits and outward actions", () => {
   expect(classifyCommand("git commit -m 'x'")).toEqual({ commit: true, irreversible: null });
   expect(classifyCommand("git -C repo push origin main").irreversible).toBe("git push");
+  expect(classifyCommand("git -c core.sshCommand=x push origin main").irreversible).toBe("git push");
+  expect(classifyCommand("git --no-pager push origin main").irreversible).toBe("git push");
+  expect(classifyCommand("git log --format=%s | grep push").irreversible).toBeNull();
   expect(classifyCommand("git tag -a v2.0.0 -m v2").irreversible).toBe("git tag");
   expect(classifyCommand("git tag -l").irreversible).toBeNull();
   expect(classifyCommand("git tag v2.0.0").irreversible).toBe("git tag");
@@ -56,6 +59,18 @@ test("bash guard classifies commits and outward actions", () => {
   expect(classifyCommand(`git commit -m "ship it" && git push`).irreversible).toBe("git push");
   expect(classifyCommand(`bash -c "git push origin main"`).irreversible).toBe("git push");
   expect(classifyCommand(`sh <<'EOF'\ngit push origin main\nEOF`).irreversible).toBe("git push");
+  expect(classifyCommand(`/bin/bash <<'EOF'\nkubectl apply -f x\nEOF`).irreversible).toBe("cluster change");
+  expect(classifyCommand(`ssh box <<'EOF'\nkubectl apply -f x\nEOF`).irreversible).toBe("cluster change");
+  // A `.sh` file name on the heredoc line isn't a shell (Heartbeat: `git add kind-e2e.sh && git commit -F - <<'EOF'`).
+  expect(classifyCommand(`git add scripts/kind-e2e.sh && git commit -q -F - <<'EOF'\ntest: kubectl rollout restart then apply\nEOF`)).toEqual({ commit: true, irreversible: null });
+});
+
+test("bash guard: kubectl and helm changes are found behind global flags; reads are not changes", () => {
+  for (const cmd of ["kubectl -n prod delete deploy api", "kubectl --context prod-eu apply -f x.yaml", "kubectl --context=prod -n x scale deploy/a --replicas=0",
+    "helm --kube-context prod upgrade api ./chart", "helm upgrade hb ./chart --kube-context minikube", "kubectl rollout restart deploy/api", "kubectl -n x rollout undo deploy/api",
+    "kubectl create namespace x", "kubectl patch deploy a -p '{}'"]) expect([cmd, classifyCommand(cmd).irreversible]).toEqual([cmd, "cluster change"]);
+  for (const cmd of ["kubectl rollout status sts/db", "kubectl -n x rollout history deploy/a", "kubectl --context prod get pods", "kubectl -n x logs deploy/a",
+    "kubectl describe deploy delete-me", "helm list -A", "helm --kube-context prod status api"]) expect([cmd, classifyCommand(cmd).irreversible]).toEqual([cmd, null]);
 });
 
 // ------------------------------------------------------------------ repos

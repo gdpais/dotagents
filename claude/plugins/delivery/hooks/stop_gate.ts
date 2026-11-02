@@ -16,6 +16,10 @@
  * the policy, unless the user's last message asked to hold. Edits made on the base branch get told to
  * move to a feature branch. Never more than once per session.
  *
+ * v3.2: shipping includes review. The ship nudge asks for `defect-first-review` first when the session
+ * hasn't run it (itself or in a subagent); a session that opened a PR with code changes and no review
+ * gets one nudge to review it. Docs-only changes, `"review": false` and a hold skip both.
+ *
  * Opt-out: DELIVERY_STOP_GATE=0, or {"stopGate": false} in .claude/delivery.json.
  * Reviews only: {"stopGate": {"reviews": false}} keeps the quality and secret checks.
  * Exit 0 = allow stop; exit 2 + stderr = block with that message.
@@ -24,44 +28,28 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { preflight, type Preflight, type Review } from "../skills/delivery-lifecycle/scripts/preflight";
-import { globMatch, loadConfig, parseAutonomy, type Autonomy } from "./autonomy";
+import { asksToHold, globMatch, lastUserPrompt, loadConfig, parseAutonomy, reviewed, skillUsed, toolUses, type Autonomy } from "./autonomy";
 import { baseBranch } from "./session_context";
 
+export { asksToHold, lastUserPrompt, reviewed, skillUsed, toolUses };
+
 interface HookInput { session_id?: string; transcript_path?: string; cwd?: string; stop_hook_active?: boolean }
-interface State { qualityBlocks: number; reviewBlocks: string[]; shipNudged?: boolean }
+interface State { qualityBlocks: number; reviewBlocks: string[]; shipNudged?: boolean; reviewNudged?: boolean }
 type Any = any;
 
 const EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
-
-/** Tool uses recorded in the session transcript (JSONL). */
-export function toolUses(transcript: string): { name: string; input: Any }[] {
-  const out: { name: string; input: Any }[] = [];
-  for (const line of transcript.split("\n")) {
-    if (!line.includes("tool_use")) continue;
-    try {
-      const content = JSON.parse(line)?.message?.content;
-      if (Array.isArray(content)) for (const c of content) if (c?.type === "tool_use") out.push({ name: c.name, input: c.input ?? {} });
-    } catch { /* partial line */ }
-  }
-  return out;
-}
+const DOCS = /\.(md|mdx|rst|txt|adoc)$/i;
 
 export function sessionEdited(uses: { name: string; input: Any }[]): boolean {
   return uses.some((u) => EDIT_TOOLS.has(u.name) || (u.name === "Bash" && /\bsed\s+-i\b|\bgit\b[^|;&]*\bcommit\b|\bpatch\b\s+-p|\btee\b|(^|[^0-9&])>\s*[\w./-]+\.\w+/.test(String(u.input.command ?? ""))));
 }
 
-/** True when the session loaded the skill (Skill tool, possibly plugin-namespaced) or read its SKILL.md. */
-export function skillUsed(uses: { name: string; input: Any }[], skill: string): boolean {
-  const bare = skill.split(":").pop()!;
-  return uses.some((u) =>
-    (u.name === "Skill" && (String(u.input.skill ?? "") === skill || String(u.input.skill ?? "").split(":").pop() === bare)) ||
-    (u.name === "Read" && String(u.input.file_path ?? "").endsWith(`/${bare}/SKILL.md`)));
-}
-
 async function git(args: string[], cwd: string): Promise<string | null> {
-  const p = Bun.spawn(["git", ...args], { cwd, stdout: "pipe", stderr: "ignore" });
-  const [out, code] = await Promise.all([new Response(p.stdout).text(), p.exited]);
-  return code === 0 ? out.trim() : null;
+  try {
+    const p = Bun.spawn(["git", ...args], { cwd, stdout: "pipe", stderr: "ignore" });
+    const [out, code] = await Promise.all([new Response(p.stdout).text(), p.exited]);
+    return code === 0 ? out.trim() : null;
+  } catch { return null; } // the session's cwd was removed (a cleaned-up worktree): not a repository
 }
 
 /** Compare a feature branch with its default branch; otherwise look at uncommitted work. */
@@ -74,26 +62,9 @@ async function target(cwd: string): Promise<{ base?: string }> {
   return {};
 }
 
-/** The text of the last prompt the user typed (not tool results or hook feedback). */
-export function lastUserPrompt(transcript: string): string {
-  let last = "";
-  for (const line of transcript.split("\n")) {
-    if (!line.includes('"user"')) continue;
-    try {
-      const e = JSON.parse(line);
-      if (e?.type !== "user" || e.isMeta) continue;
-      const c = e.message?.content;
-      const text = typeof c === "string" ? c : Array.isArray(c) ? c.filter((x: Any) => x?.type === "text").map((x: Any) => x.text).join(" ") : "";
-      if (text && !text.includes("Stop hook feedback") && !text.startsWith("<")) last = text;
-    } catch { /* partial line */ }
-  }
-  return last;
-}
-
-/** True when the user asked Claude not to ship yet ("don't push", "hold", "I want to look first"…). */
-export function asksToHold(prompt: string): boolean {
-  return /\b(don'?t|do not|never|no need to)\b[^.!?\n]{0,30}\b(push|pr|pull request|ship|commit)/i.test(prompt)
-    || /\bnot yet\b|\bhold (off|on|it)?\b|\blocal(ly)? only\b|\bkeep it local\b|\b(look|review|check)\b[^.!?\n]{0,25}\bfirst\b/i.test(prompt);
+/** True when the session opened a pull request (gh or a source-control tool). */
+export function openedPr(uses: { name: string; input: Any }[]): boolean {
+  return uses.some((u) => (u.name === "Bash" && /\bgh\s+pr\s+create\b/.test(String(u.input.command ?? ""))) || /create_pull_request/.test(u.name));
 }
 
 /** Checked-out branches of the repository's worktrees (the main checkout first), from `git worktree list --porcelain`. */
@@ -138,11 +109,22 @@ export async function unshipped(cwd: string, policy: Autonomy, uses: { name: str
   return null;
 }
 
-export function shipMessage(why: string, policy: Autonomy): string {
+const reviewStep = (base: string) => `review the branch with the \`defect-first-review\` skill against ${base}: fix P0/P1 before pushing and list P2/P3 in the PR description`;
+
+/** `reviewAgainst`: the base branch, when the change still needs its review before it ships. */
+export function shipMessage(why: string, policy: Autonomy, reviewAgainst?: string): string {
   return [
     `Delivery autonomy (.claude/delivery.json, approved by the user): the checks pass, but ${why}.`,
-    `Do it now without asking${policy.continue ? `, then continue with the next unblocked item in ${policy.continue.backlog}` : ""}.`,
+    `Do it now without asking${reviewAgainst ? ` (first ${reviewStep(reviewAgainst)})` : ""}${policy.continue ? `, then continue with the next unblocked item in ${policy.continue.backlog}` : ""}.`,
     "Stop instead only if the user asked you to hold or something needs their decision; then say so in one line. This won't block again.",
+  ].join(" ");
+}
+
+export function reviewMessage(base: string): string {
+  return [
+    "Delivery autonomy (.claude/delivery.json): this session opened a pull request with code changes and no review.",
+    `Now ${reviewStep(base)}, and push the fixes to the same branch.`,
+    "Stop instead only if the user asked you to hold; then say so in one line. This won't block again.",
   ].join(" ");
 }
 
@@ -184,12 +166,22 @@ export async function main(): Promise<number> {
   if (!qualityBlock && !reviews.length) {
     const notes = p.reviews.filter((r) => !reviews.includes(r) && !skillUsed(uses, r.skill)).map((r) => `${r.gate}: ${r.why} → consider ${r.skill} before merging`);
     const policy = parseAutonomy(config);
-    const why = policy && p.ok && !state.shipNudged && !asksToHold(haveTranscript ? lastUserPrompt(readFileSync(input.transcript_path!, "utf8")) : "")
-      ? await unshipped(cwd, policy, uses) : null;
+    const hold = asksToHold(haveTranscript ? lastUserPrompt(readFileSync(input.transcript_path!, "utf8")) : "");
+    const why = policy && p.ok && !state.shipNudged && !hold ? await unshipped(cwd, policy, uses) : null;
+    const reviewDue = !!policy?.review && p.ok && !hold && !state.reviewNudged && p.changed.some((f) => !DOCS.test(f)) && !reviewed(uses);
+    const save = () => { try { mkdirSync(stateDir, { recursive: true }); writeFileSync(statePath, JSON.stringify(state)); } catch { /* best effort */ } };
+    const forPr = notes.length ? `\nNotes for the PR description: ${notes.join("; ")}` : "";
     if (why && policy) {
       state.shipNudged = true;
-      try { mkdirSync(stateDir, { recursive: true }); writeFileSync(statePath, JSON.stringify(state)); } catch { /* best effort */ }
-      process.stderr.write(shipMessage(why, policy) + (notes.length ? `\nNotes for the PR description: ${notes.join("; ")}` : "") + "\n");
+      if (reviewDue) state.reviewNudged = true;
+      save();
+      process.stderr.write(shipMessage(why, policy, reviewDue ? baseBranch(cwd, policy.base) : undefined) + forPr + "\n");
+      return 2;
+    }
+    if (policy && reviewDue && openedPr(uses)) {
+      state.reviewNudged = true;
+      save();
+      process.stderr.write(reviewMessage(baseBranch(cwd, policy.base)) + forPr + "\n");
       return 2;
     }
     if (notes.length) console.log(JSON.stringify({ systemMessage: `Delivery notes (not blocking): ${notes.join("; ")}` }));

@@ -28,9 +28,10 @@ If the request is genuinely ambiguous, ask one short question; otherwise proceed
 bun scripts/preflight.ts -C <repo> [--base <branch>]   # classify + quality + secrets + CI audit, ~15 lines
 bun scripts/release_plan.ts -C <repo> [--format md]    # next semver + changelog from Conventional Commits
 bun scripts/cleanup_merged.ts -C <repo> [--dry-run] [BRANCH...]   # after merges: fetch --prune, fast-forward base, remove merged worktrees and branches
+bun scripts/pr_risk.ts -C <repo> (--pr <n> | --base <branch>) [--review ok|fix|blocking]   # low / medium / breaking, merge route, CI, evidence to collect
 ```
 
-`preflight` lists `reviews` when the diff needs judgment: security → `security-review`, performance → `performance-review`, migrations → `engineering:deploy-checklist`, CI files → `ci-cd-pipeline`. Run only those, plus `defect-first-review` for anything that will merge. Projects tune paths and checks in `.claude/delivery.json` (`hotPaths`, `securityPaths`, `ignore`, `preflight.run`, `stopGate`, `autonomy`).
+`preflight` lists `reviews` when the diff needs judgment: security → `security-review`, performance → `performance-review`, migrations → `engineering:deploy-checklist`, CI files → `ci-cd-pipeline`. Run only those, plus `defect-first-review` for anything that will merge. Projects tune paths and checks in `.claude/delivery.json` (`hotPaths`, `securityPaths`, `ignore`, `preflight.run`, `stopGate`, `evidence`, `autonomy`).
 
 ## Gates
 
@@ -45,15 +46,32 @@ Each line is `pass`, `fail`, `n/a (why)` or `not verified (why)`; a check you di
 
 When `.claude/delivery.json` has an `autonomy` block, the user has approved these steps once; the policy is added to the session at start. Then, without stopping to offer each step:
 
-1. **Ship** a finished slice: preflight passes → commit → merge the base branch in → push the branch (only names in `autonomy.push`) → open the PR (`openPr`) → turn on PR monitoring / Auto-fix when the host offers it (`autoFix`).
-2. **Clean up** when told or shown that a PR merged (`cleanupMerged`): run `cleanup_merged.ts` once from the main checkout and relay its lines; don't repeat its git steps by hand. It deletes only branches contained in the remote base (`git branch -d`), and keeps dirty worktrees and squash-merged or closed branches, giving the reason for each; deleting those needs the user.
-3. **Continue** (`continue.backlog`, `maxItems`): start the next backlog item whose dependencies are merged. Skip items that need a decision.
+1. **Ship** a finished slice: preflight passes → `defect-first-review` against the base (fix P0/P1; list P2/P3 in the PR; `"review": false` skips it) → commit → merge the base branch in → push the branch (only names in `autonomy.push`) → open the PR (`openPr`) → turn on PR monitoring / Auto-fix when the host offers it (`autoFix`).
+2. **Merge by risk** (`autonomy.merge`, below).
+3. **Clean up** when told or shown that a PR merged (`cleanupMerged`): run `cleanup_merged.ts` once from the main checkout and relay its lines; don't repeat its git steps by hand. It deletes only branches contained in the remote base (`git branch -d`), and keeps dirty worktrees and squash-merged or closed branches, giving the reason for each; deleting those needs the user.
+4. **Continue** (`continue.backlog`, `maxItems`): start the next backlog item whose dependencies are merged. Skip items that need a decision.
 
-Stop for real decisions only, and put every question in one message: merge, tag, release, deploy, pushing the base branch, force push, an ADR, cost, an open question, missing access. While blocked on the user, keep doing unblocked work. "Hold" or "don't push" from the user wins over the policy.
+Stop for real decisions only, and put every question in one message: a merge the risk rules don't cover, tag, release, deploy, pushing the base branch, force push, an ADR, cost, an open question, missing access. While blocked on the user, keep doing unblocked work. "Hold" or "don't push" from the user wins over the policy. Also covered once approved: `gh workflow run` for `autonomy.workflows`, kubectl/helm on `localClusters`; the hooks approve these outright, so auto mode doesn't stop them.
+
+## Merge by risk
+
+The session that reviews a PR also rates it and owns its merge decision; it doesn't hand the rating to another session. After `defect-first-review`, run `pr_risk.ts --pr <n> --review <verdict>`. It rates the PR from the diff and commits, and that rating is a floor: raise it when the review shows more risk, never lower it.
+
+| Risk | What makes it | Route with `"merge": {"low": "green", "medium": "decide"}` |
+|---|---|---|
+| low | none of the signals below | merge on green |
+| medium | security, migration, performance, CI/infra or dependency gate; major version bump; size L/XL; public surface or contract change; source without tests; P2 findings | your call: merge on green when the review found nothing above P3 and the evidence shows the feature working; otherwise ask, with evidence |
+| breaking | `feat!:` or `BREAKING CHANGE:`, destructive migration, a public contract (OpenAPI, proto, GraphQL) that lost lines | always ask, with evidence |
+
+Never merge with an open P0/P1 or red CI. Without `autonomy.merge` every merge asks. The Bash hook enforces this: `gh pr merge <n>` passes only when this session ran the review and `pr_risk.ts --pr <n>`, the risk it recomputes is one the policy merges, and CI is green.
+
+**Evidence** for an approval adapts to the project. `pr_risk.ts` lists what fits the diff: screenshots and a short recording for UI changes (browser pane, Chrome GIF, simulator), a live demo against a running instance for services, a local-cluster run for charts and infra, a command transcript for CLIs, and always the test results (commands, exit codes, counts, and the new tests that fail without the change) plus CI. Projects add their own items in `"evidence": [...]`. Produce it, send the files with the ask, and summarise it in the PR.
+
+**Long sessions** with several features, worktrees and sub-sessions: each PR gets its own review, rating and route. Merge in dependency order, clean up after each merge, and bring dependent branches up to date with the base before their own review. Collect every approval request into one message, with one block per PR: risk and reasons, review verdict, CI, evidence.
 
 ## Approvals
 
-Branches and local commits are fine when the user asked to build. Pushing, merging, tagging, publishing, deploying, production migrations, posting and ticket writes need the user's explicit request for that action, or the autonomy policy for the push and PR steps it lists. Never invent owners, dates, versions, thresholds or approvals: use `proposed`, `unknown` or `[to be assigned]`.
+Branches and local commits are fine when the user asked to build. Pushing, merging, tagging, publishing, deploying, production migrations, posting and ticket writes need the user's explicit request for that action, or the autonomy policy for the push, PR and risk-rated merge steps it lists. Never invent owners, dates, versions, thresholds or approvals: use `proposed`, `unknown` or `[to be assigned]`.
 
 ## Reply
 
