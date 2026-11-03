@@ -75,6 +75,58 @@ test("prose and identifiers with SQL verbs are not string-built SQL", () => {
   expect(flagsSql("const label = `Select ${n} items`;")).toBe(false);
 });
 
+const flagsExec = (path: string, lines: string[]) =>
+  classify([change(path, lines)]).gates.security.signals.some((s) => s.signal === "dynamic code execution");
+
+test("comments and doc blocks are not dynamic code execution", () => {
+  // claude/evals/headtohead/report.ts, flagged on 2026-11-02 for line 4 of its doc comment.
+  const report = [
+    "#!/usr/bin/env bun",
+    "/**",
+    " * Head-to-head report: per family and arm, substance first, house rules apart, cost and time per run,",
+    " * and differences with 95% bootstrap CIs stratified by eval (the harness's diffCI).",
+    " */",
+  ];
+  expect(flagsExec("claude/evals/headtohead/report.ts", report)).toBe(false);
+  expect(flagsExec("src/report.ts", [report[3]])).toBe(false); // a hunk that starts mid-block
+  expect(flagsExec("scripts/run.py", ["# run the eval (x) before grading"])).toBe(false);
+  expect(flagsExec("src/tpl.ts", [" * Never build templates with new Function(src): it runs arbitrary code."])).toBe(false);
+  expect(flagsExec("src/tpl.ts", ["/** Unlike new Function(src), this never runs code. */"])).toBe(false);
+  expect(flagsExec("src/a.go", ["// exec(cmd) lives in the runner"])).toBe(false);
+  expect(flagsExec("src/a.ts", ["/* a block that", "   spans lines and mentions eval (x)", "*/"])).toBe(false);
+});
+
+test("prose in strings is not dynamic code execution", () => {
+  // report.ts line 71, which line 4 hid: signals are kept once per file.
+  expect(flagsExec("claude/evals/headtohead/report.ts", ['      L.push("", "Substance by eval (share of substance assertions passed, mean over runs):", "", `| Eval | ${arms.join(" | ")} |`, `|---|${arms.map(() => "---").join("|")}|`);'])).toBe(false);
+  expect(flagsExec("src/a.ts", ['log("exec (summary) written");'])).toBe(false);
+});
+
+test("code still fires around comments", () => {
+  expect(flagsExec("src/a.ts", ["eval(x)"])).toBe(true);
+  expect(flagsExec("src/a.ts", ['const f = new Function("a");'])).toBe(true);
+  expect(flagsExec("src/a.ts", ["child_process.exec(cmd);"])).toBe(true);
+  expect(flagsExec("src/a.ts", ["execSync(cmd);"])).toBe(true);
+  expect(flagsExec("src/a.py", ["exec(code)"])).toBe(true);
+  expect(flagsExec("src/a.py", ["subprocess.run(cmd)"])).toBe(true);
+  expect(flagsExec("src/a.ts", ["eval(x) // why"])).toBe(true);
+  expect(flagsExec("src/a.ts", ["/* why */ eval(x)"])).toBe(true);
+  expect(flagsExec("src/a.ts", ["/**", " * docs", " */ eval(x)"])).toBe(true);
+  expect(flagsExec("src/a.ts", ["/** docs */", "eval(x)"])).toBe(true);
+  // "/*" after code (here in a glob) doesn't open a block, so the next line is still scanned.
+  expect(flagsExec("src/a.ts", ['const glob = "src/**/*.ts";', "eval(x)"])).toBe(true);
+  // A block left open at the end of one hunk doesn't hide the next hunk.
+  const twoHunks: FileChange = { ...change("src/a.ts"), addedLines: [{ line: 1, text: "/* start" }, { line: 9, text: "eval(x)" }] };
+  expect(classify([twoHunks]).gates.security.signals.map((s) => s.signal)).toContain("dynamic code execution");
+  // `#` starts a comment only in the languages that use it; in TypeScript it is a private field.
+  expect(flagsExec("src/a.ts", ["  #run = eval(x);"])).toBe(true);
+});
+
+test("a credential in a comment still fires", () => {
+  const r = classify([change("src/a.ts", ['// password = "hunter2hunter2"'])]);
+  expect(r.gates.security.signals.map((s) => s.signal)).toContain("credential-like literal");
+});
+
 test("dependency change requires dependency and supply-chain security gates; lockfile excluded from size", () => {
   const r = classify([change("package.json", ['"left-pad": "^1.0.0"']), change("package-lock.json", Array(500).fill("x"))]);
   expect(r.gates.dependencies.level).toBe("required");
