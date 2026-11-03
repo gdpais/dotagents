@@ -1,0 +1,22 @@
+{
+  "sources": {
+    "sre": "/Users/gabiru/personal/dotagents/.claude/worktrees/routing-test-39736d/claude/skills",
+    "delivery": "/Users/gabiru/.claude/plugins/cache/dotagents/delivery/3.1.0",
+    "reviewSkill": "/Users/gabiru/personal/dotagents/.claude/worktrees/routing-test-39736d/claude/skills/defect-first-review"
+  },
+  "sre": [
+    "sre:rca-investigation",
+    "sre:incident-postmortem",
+    "sre:tech-email",
+    "sre:sre-incident-lifecycle",
+    "sre:incident-live-report"
+  ],
+  "delivery": [
+    "delivery:delivery-lifecycle",
+    "delivery:performance-review",
+    "delivery:feature-planning",
+    "delivery:ci-cd-pipeline",
+    "delivery:defect-first-review"
+  ],
+  "taken": "2026-10-28T15:52:36.884Z"
+}

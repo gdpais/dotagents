@@ -1,0 +1,19 @@
+{
+ "scenario": "Live checkout 5xx incident, prompt-only (no files)",
+ "true_cause": "Unknown at this point. checkout-svc v2.31 (deployed 13:58) is a candidate hypothesis only; DB CPU 30% is reported by Marta; DB pool graphs are being checked by Rui.",
+ "red_herrings": [],
+ "figures": {
+  "error_rate": "~12% of POST /api/checkout",
+  "edges": "edge-01 and edge-02",
+  "start": "~14:05 Lisbon",
+  "window": "14:05-14:20, still ongoing",
+  "deploy": "checkout-svc v2.31 at 13:58",
+  "db_cpu": "30% (Marta, DBA)"
+ },
+ "facts_in_evidence": [
+  "Since about 14:05 Lisbon the checkout API returns 5xx; Grafana: ~12% of POST /api/checkout failing on edge-01 and edge-02 (window 14:05-14:20, still ongoing).",
+  "checkout-svc v2.31 deployed at 13:58. Payments provider status page green.",
+  "Rui is on call, checking DB pool graphs. Marta (DBA) says DB CPU is 30%. No customer comms sent yet. Gabriel is the incident lead.",
+  "Nothing else: no customer counts, revenue, severity, ETA, rollback decision, ticket numbers or other owners."
+ ]
+}

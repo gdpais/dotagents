@@ -1,0 +1,55 @@
+{
+ "scenario": "Checkout 503s on 30 Sep 2026, ~40 min around lunchtime Lisbon",
+ "true_cause": "checkout-svc config v14 (deployed 12:50 Lisbon = 11:50 UTC) cut db.pool.max from 50 to 10; the pool saturated (db_pool_active pinned at 10), checkout requests queued in HAProxy and hit the queue timeout (termination sQ--, Tw 10000 ms) -> 503 on be_checkout only. Rollback to v13 at 13:28 Lisbon ended it (errors stop 12:31:40 UTC = 13:31:40 Lisbon).",
+ "red_herrings": [
+  "CDN TLS certificate rotation at 12:38 Lisbon: only be_checkout fails, cart and static on the same edge are 100% 200; failures are server-queue timeouts (sQ), not TLS/handshake; onset is 12:52, 14 min after the rotation and 2 min after config v14.",
+  "Marta's 'DB is fine' is reported, not verified; db_cpu stays 27-33% (so the DB itself is not saturated) but that does not clear the client-side pool."
+ ],
+ "evidence_gaps": [
+  "edge-02 HAProxy log is missing (export failed); counts cover edge-01 only",
+  "no checkout-svc application logs",
+  "recovery after rollback supports but does not prove the cause; a discriminating test would be re-applying pool 10 in staging under load"
+ ],
+ "timezones": "HAProxy log is UTC; change log, on-call notes and the Grafana export are Lisbon (UTC+1). Onset 11:52:10 UTC = 12:52:10 Lisbon; last 503 before 12:31:40 UTC = 13:31:40 Lisbon.",
+ "figures": {
+  "edge01_checkout_requests_whole_log": 2121,
+  "edge01_checkout_503_whole_log": 296,
+  "edge01_checkout_requests_in_window_1152_1231_UTC": 906,
+  "edge01_checkout_503_in_window": 296,
+  "edge01_checkout_503_rate_in_window_pct": 32.7,
+  "edge01_cart_requests": 2608,
+  "edge01_cart_5xx": 0,
+  "edge01_static_requests": 3190,
+  "edge01_static_5xx": 0,
+  "duration_min": "about 39-40 (12:52-13:31 Lisbon)",
+  "db_cpu_pct_range": "27-33",
+  "alternative_windows": {
+   "first_to_last_503": {
+    "from_utc": "11:52:13",
+    "to_utc": "12:31:34",
+    "requests": 905,
+    "503": 296,
+    "rate_pct": 32.7
+   },
+   "minutes_1152_to_1231_inclusive_utc": {
+    "requests": 920,
+    "503": 296,
+    "rate_pct": 32.2
+   },
+   "minutes_1150_to_1235_utc": {
+    "requests": 1016,
+    "503": 296,
+    "rate_pct": 29.1
+   }
+  }
+ },
+ "facts_in_evidence": [
+  "Change log: 09:12 search-svc synonyms; 12:38 CDN TLS cert rotation (all edge hostnames); 12:50 checkout-svc config v14 (db.pool.max 50->10, http.keepalive_s 60->30); 13:28 config rolled back v14->v13. All Lisbon.",
+  "On-call notes: 12:58 alert 5xx>5%; 13:02 Ana suspects CDN cert; 13:06 Marta says DB fine; 13:10 edge-02 export failed; 13:19 pods healthy, no restarts; 13:25 decided rollback; 13:28 rollback done; 13:33 back to normal.",
+  "Grafana (Lisbon, per minute): checkout_rps, checkout_5xx_pct, checkout_p95_ms, db_pool_active, db_pool_max (50, 10 from 12:50 to 13:27, 50 again 13:28), db_cpu_pct 27-33.",
+  "HAProxy edge-01 (UTC) 11:20-12:50: be_checkout, be_cart, be_static. Checkout 503s all sQ-- with Tw=10000.",
+  "Nothing about customers, revenue, owners, tickets or severity is in the evidence.",
+  "Verbatim changes.md:\n# Change log (times are Europe/Lisbon)\n\n| When | Service | Change | By |\n|---|---|---|---|\n| 2026-09-30 09:12 | search-svc | Synonym list update | search team |\n| 2026-09-30 12:38 | CDN / edge | TLS certificate rotation, all edge hostnames | platform |\n| 2026-09-30 12:50 | checkout-svc | Config v14: connection settings cleanup (`db.pool.max` 50 -> 10, `http.keepalive_s` 60 -> 30) | checkout team |\n| 2026-09-30 13:28 | checkout-svc | Config rolled back v14 -> v13 | on-call |\n",
+  "Verbatim oncall-notes.md:\n# On-call notes, 30 Sep (Lisbon time)\n\n- 12:58 Alert: checkout 5xx above 5% (edge).\n- 13:02 Ana: the CDN cert was rotated at 12:38, I bet some clients are failing TLS. Probably that.\n- 13:06 Marta (DBA): DB is fine, nothing on our side.\n- 13:10 Rui: tried to export edge-02's HAProxy log for the window, the export job failed. We only have edge-01.\n- 13:19 Rui: checkout pods look healthy, no restarts.\n- 13:25 Decided to roll back checkout-svc config v14.\n- 13:28 Rollback done.\n- 13:33 Checkout errors back to normal.\n"
+ ]
+}
