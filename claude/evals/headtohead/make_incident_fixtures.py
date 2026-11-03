@@ -52,6 +52,11 @@ def hap_line(host, pid, rng, t_logged, backend, server, timers, status, size, te
     return f'{syslog} {host} haproxy[{pid}]: {ip} [{ts}] fe_https~ {backend}/{server} {timers} {status} {size} - - {term} {conns} {queue} "{method} {path} HTTP/1.1"'
 
 
+def verbatim(folder, names):
+    """The short evidence files word for word, so graders don't mistake a quoted detail for an invented one."""
+    return [f"Verbatim {n}:\n" + open(os.path.join(folder, n)).read() for n in names]
+
+
 def write(path, text):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as f:
@@ -171,7 +176,7 @@ def inc_small(out, keys):
             "Grafana (Lisbon, per minute): checkout_rps, checkout_5xx_pct, checkout_p95_ms, db_pool_active, db_pool_max (50, 10 from 12:50 to 13:27, 50 again 13:28), db_cpu_pct 27-33.",
             "HAProxy edge-01 (UTC) 11:20-12:50: be_checkout, be_cart, be_static. Checkout 503s all sQ-- with Tw=10000.",
             "Nothing about customers, revenue, owners, tickets or severity is in the evidence.",
-        ],
+        ] + verbatim(d, ("changes.md", "oncall-notes.md")),
     }
 
 
@@ -399,8 +404,8 @@ def inc_2219(out, keys):
         "time_to_restore": "09:42:52 -> 10:40 flag off (errors gone by 10:44 per Slack) = ~57 min",
     }
     facts = [
-        "Change log (Lisbon): Fri 25 Sep 17:10 fraud-svc minReplicas 6->2 (cost review); Mon 28 Sep 09:20 CDN Brotli for /static/*; 09:36 payments-gw v5.2 sync fraud check behind flag fraud_check_sync (default ON), 3 s timeout; 09:40 'Autumn sale' email to 1.2M customers; 10:05 planned orders-db failover db-a->db-b; 10:25 fraud-svc scaled to 6; 10:40 fraud_check_sync OFF.",
-        "Slack (Lisbon): 09:51 alert confirm 5xx>10%; 09:53 Rui confirms 503 at edge, cart/browsing fine; 09:58 Sofia suspects CDN Brotli; 10:03 fraud-svc CPU high; 10:07 Tiago blames DB failover; 10:09 Marta: planned failover, ~20 s, db-b primary; 10:14 Tiago still blames DB; 10:20 fraud-svc ~99% CPU on 2 pods; 10:25 scaled to 6; 10:31 better but still failing; 10:36 Ines: v5.2 sync fraud check 3 s, turning flag off; 10:40 flag OFF; 10:44 errors gone; 11:20 resolved.",
+        "Change log (Lisbon), with the team that made each change: Fri 25 Sep 17:10 fraud-svc HPA minReplicas 6->2 (cost review, low weekend traffic; platform); Mon 28 Sep 09:20 CDN Brotli for /static/* (platform); 09:36 payments-gw v5.2 sync fraud check behind flag fraud_check_sync (default ON), 3 s timeout (payments team); 09:40 'Autumn sale' email to 1.2M customers (marketing); 10:05 planned orders-db failover db-a->db-b, maintenance window (DBA); 10:25 fraud-svc scaled to 6 replicas, manual (on-call); 10:40 fraud_check_sync OFF (payments team).",
+        "Slack (Lisbon): 09:51 alertmanager [FIRING] confirm 5xx>10% (edge); 09:53 Rui confirms 503 at edge, cart/browsing fine; 09:58 Sofia suspects CDN Brotli; 10:03 fraud-svc CPU high; 10:07 Tiago blames DB failover; 10:09 Marta (DBA): failover was planned for 10:05, ~20 s, db-b primary; 10:14 Tiago still blames DB; 10:20 fraud-svc ~99% CPU on 2 pods; 10:25 scaled to 6; 10:31 better but still failing; 10:36 Ines (payments): v5.2 went out at 09:36 with a sync fraud check (3 s timeout), turning flag off; 10:40 flag OFF; 10:44 errors gone; 11:20 Rui: resolved, keeping an eye on it.",
         "HAProxy edge-01 and edge-02 (UTC, edge-02 clock ~95 s fast), 08:20-10:00 UTC (edge-02's lines are logged 95 s late relative to edge-01): be_payments (/api/checkout/confirm), be_checkout, be_cart, be_static. Only confirm has 503s (Tr ~3.0-3.2 s). 502 SH-- on confirm and checkout only during 09:05:10-09:05:31 UTC.",
         "payments-gw IIS (UTC): /v1/payments/confirm (status 200/503, 503s take ~3 s; 500s only during the DB blip) and /internal/orders/fraud-precheck from orders-worker (200/504). The 504s are internal calls; their customer outcome is not in the evidence.",
         "Grafana fraud-svc (Lisbon): replicas 2 until 10:24, 6 from 10:25; CPU 22-34% before 09:36, 64-76% from 09:36, 97-99% with p95 3000 ms from 09:42 to 10:24, 80-90% from 10:25, 22-34% after 10:40; rps x4 from 09:36, x2.3 more from 09:40; timeouts per minute drop after the scale-up but reach 0 only at 10:40.",
@@ -408,6 +413,7 @@ def inc_2219(out, keys):
         "Grafana orders-db (Lisbon): primary db-a until the failover minute, db-b after; errors 38 only in the 10:05 minute; CPU 24-36%.",
         "No customer counts, revenue, refunds, owners, ticket numbers or severity are in the evidence (the campaign's 1.2M recipients is the only customer-related figure).",
     ]
+    facts = facts + verbatim(fx, ("changes.md", "slack-notes.md"))
     common = {
         "scenario": "INC-2219, Mon 28 Sep 2026, payment confirmations failing ~09:43-10:40 Lisbon",
         "true_cause": "payments-gw v5.2 (09:36 Lisbon) added a synchronous fraud check (flag fraud_check_sync, 3 s timeout) on the confirm path. fraud-svc had been cut to 2 replicas on Friday (minReplicas 6->2) and the 09:40 campaign doubled traffic, so fraud-svc saturated (~99% CPU, p95 3 s), fraud calls timed out at 3 s and payments-gw returned 503 for confirms. Trigger/enabling change: v5.2 sync check; contributing conditions: replicas cut, campaign traffic. Scaling fraud-svc to 6 at 10:25 only reduced failures (partial mitigation); setting fraud_check_sync OFF at 10:40 ended the impact.",
@@ -466,7 +472,12 @@ Payment confirmation success: {slo}% of confirmation requests succeed (event-bas
 - Mitigation: fraud-svc scaled to 6 replicas at 10:25 reduced failures (partial). Restoration: `fraud_check_sync` OFF at 10:40; errors gone by 10:44.
 - Open questions: why v5.2 shipped with the flag ON by default; whether HPA should have scaled fraud-svc on its own; customer outcome of failed confirms (retries, abandoned orders) not measured.
 """)
-    keys["inc-2219-pm"] = {**common, "postmortem_expectations": [
+    pm_facts = common["facts_in_evidence"] + [
+        f"incident-record.md: INC-2219 'Payment confirmations failing', status Resolved; detected 09:51 Lisbon (alert confirm 5xx > 10%); incident lead Rui (on-call SRE); resolved 11:20 Lisbon (declared after monitoring); services payments-gw, fraud-svc, checkout (confirm path). SLO {slo}% of confirmation requests succeed (event-based SLI measured at the edge) per calendar month; September forecast {monthly_volume:,} confirmations.",
+        f"rca-summary.md: confidence strongly supported (no controlled re-test of the v5.2 path under load yet); trigger v5.2 sync fraud check (flag default ON, 3 s); contributing: minReplicas 6->2 on Fri 25 Sep, campaign at 09:40 roughly doubled confirm traffic; mechanism: fraud-svc ~99% CPU on 2 replicas, p95 3 s, calls hit 3 s timeout, payments-gw returned 503; ruled out DB failover and CDN Brotli; impact {failed:,} of {tot:,} ({100 * failed / tot:.1f}%): {f503:,} x 503 and {f502} x 502; {iis_stats['precheck_504']} internal pre-check 504s not counted; mitigation scale-up 10:25 partial, restoration flag OFF 10:40, errors gone 10:44; open questions: why v5.2 shipped with the flag ON by default, whether HPA should have scaled fraud-svc on its own, customer outcome of failed confirms not measured.",
+    ]
+    pm_facts = common["facts_in_evidence"] + verbatim(pm, ("incident-record.md", "rca-summary.md"))
+    keys["inc-2219-pm"] = {**common, "facts_in_evidence": pm_facts, "postmortem_expectations": [
         f"Cause matches the RCA summary and keeps confidence 'strongly supported' (not upgraded to confirmed).",
         f"Impact: {failed:,} of {tot:,} failed confirmations ({100 * failed / tot:.1f}%), or {f503:,} 503s with the same denominator.",
         f"Error budget from the event-based SLI: allowed failures {allowed:,} ({monthly_volume:,} x 0.5%); consumed ~{100 * failed / allowed:.1f}% by {failed:,} (or ~{100 * f503 / allowed:.1f}% by 503s only); not from duration.",

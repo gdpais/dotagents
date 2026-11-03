@@ -48,6 +48,8 @@
   "On-call notes: 12:58 alert 5xx>5%; 13:02 Ana suspects CDN cert; 13:06 Marta says DB fine; 13:10 edge-02 export failed; 13:19 pods healthy, no restarts; 13:25 decided rollback; 13:28 rollback done; 13:33 back to normal.",
   "Grafana (Lisbon, per minute): checkout_rps, checkout_5xx_pct, checkout_p95_ms, db_pool_active, db_pool_max (50, 10 from 12:50 to 13:27, 50 again 13:28), db_cpu_pct 27-33.",
   "HAProxy edge-01 (UTC) 11:20-12:50: be_checkout, be_cart, be_static. Checkout 503s all sQ-- with Tw=10000.",
-  "Nothing about customers, revenue, owners, tickets or severity is in the evidence."
+  "Nothing about customers, revenue, owners, tickets or severity is in the evidence.",
+  "Verbatim changes.md:\n# Change log (times are Europe/Lisbon)\n\n| When | Service | Change | By |\n|---|---|---|---|\n| 2026-09-30 09:12 | search-svc | Synonym list update | search team |\n| 2026-09-30 12:38 | CDN / edge | TLS certificate rotation, all edge hostnames | platform |\n| 2026-09-30 12:50 | checkout-svc | Config v14: connection settings cleanup (`db.pool.max` 50 -> 10, `http.keepalive_s` 60 -> 30) | checkout team |\n| 2026-09-30 13:28 | checkout-svc | Config rolled back v14 -> v13 | on-call |\n",
+  "Verbatim oncall-notes.md:\n# On-call notes, 30 Sep (Lisbon time)\n\n- 12:58 Alert: checkout 5xx above 5% (edge).\n- 13:02 Ana: the CDN cert was rotated at 12:38, I bet some clients are failing TLS. Probably that.\n- 13:06 Marta (DBA): DB is fine, nothing on our side.\n- 13:10 Rui: tried to export edge-02's HAProxy log for the window, the export job failed. We only have edge-01.\n- 13:19 Rui: checkout pods look healthy, no restarts.\n- 13:25 Decided to roll back checkout-svc config v14.\n- 13:28 Rollback done.\n- 13:33 Checkout errors back to normal.\n"
  ]
 }
