@@ -15,14 +15,25 @@
   - **Live report plus PT email:** 95% vs 70–75%.
   - **Complex RCA:** 91% vs 84–87%.
 
-**Code review: switch to the built-in `/code-review`. Keep `defect-first-review` only where zero noise on clean changes is worth +$0.08 per run.**
-- **Recall:** the built-in matches `defect-first-review`, 100% vs 100%. That includes the two harder repos (`rv-ledger`, `rv-cache`). No skill at all also gets 100%, so recall can't separate the arms on these repos.
-- **False positives, all 7 repos:** `defect-first-review` has fewer, **0.23 vs 0.66 per run [−0.71, −0.17]**. Most of the gap is the clean refactor, where the built-in reports pre-existing issues the change didn't introduce (1.4 per run vs 0).
-- **False positives, the two harder repos:** no significant difference, 0.6 vs 1.0 [−0.9, +0.2]. Excluding two decoys the key got wrong (see Limits), the built-in is lower: 0.10 vs 0.20.
-- **Other real issues:** the built-in reports more beyond the planted ones, 1.9 vs 0.5 per run (2.8 vs 0.5 on the hard repos).
-- **Cost:** `defect-first-review` costs +$0.083 per run (+30%) and takes 12 s longer.
-- **`engineering:code-review` adds nothing over no skill:** same recall and false positives, +$0.036 per run.
-- **Where `defect-first-review` adds nothing for its cost:** planted-bug recall. Its measured value is precision on clean changes and its P0–P3 file:line format (house rules 96% vs 36%).
+**Code review: evidence on G-46, which (PR #7, merged 2026-11-02) made `engineering:code-review` the delivery reviewer and removed `defect-first-review`.** The data supports it on recall and cost and goes against it on precision.
+
+For G-46:
+- **No bugs lost:** `engineering:code-review` found 100% of the planted defects, the same as `defect-first-review`, including the two harder repos (`rv-ledger`, `rv-cache`).
+- **Cheaper and faster:** **−$0.13 per run [−$0.14, −$0.12]** vs `defect-first-review` (−37%), 30 s vs 47 s. It is the cheapest skill arm.
+- **More extra issues:** it reports more real issues beyond the planted ones, +1.1 per run [+0.9, +1.3].
+
+Against G-46:
+- **Noisier:** more false positives than `defect-first-review`, **+0.31 per run [+0.14, +0.49]** across all 7 repos.
+  - On the harder repos the gap is **+0.90 [+0.50, +1.30]**, 1.5 vs 0.6 per run.
+  - Excluding the two disputed decoys: 0.70 vs 0.20.
+- **Not better than no skill:** same recall, same false positives (0.00 [−0.23, +0.20]), +$0.04 per run. What it adds over no skill is extra real issues (+0.7 per run) and some format.
+- **Worse than the built-in `/code-review` on the harder repos:**
+  - More false positives (+0.50 [+0.10, +0.90]).
+  - Fewer extra real issues (−1.1 [−1.4, −0.8]).
+  - The built-in costs $0.05 more per run.
+  - Across all 7 repos the two are close on false positives (−0.11 [−0.40, +0.14]).
+
+Net: removing `defect-first-review` loses no bug-finding and saves about a third of the review cost. The price is about one extra false positive per review on harder changes. If that noise matters, the built-in `/code-review` is the better Anthropic reviewer on the harder repos for +$0.05 per run. `defect-first-review` stays the quietest (0 false positives on the clean refactor, where the built-in reported 1.4 pre-existing issues per run).
 
 ## Incident (5 evals × 5 reps)
 
@@ -71,6 +82,7 @@ Substance per dollar is flat: none 1.08, engineering 1.13, custom 1.05 substance
 | custom vs none | −0.31 [−0.54, −0.11] | +$0.166 [+$0.151, +$0.181] |
 | custom vs builtin | **−0.43 [−0.71, −0.17]** | +$0.083 [+$0.066, +$0.099] |
 | custom vs engineering | −0.31 [−0.49, −0.14] | +$0.130 [+$0.118, +$0.142] |
+| engineering vs builtin | −0.11 [−0.40, +0.14] | −$0.047 [−$0.06, −$0.03] |
 
 **The two harder repos alone** (`rv-ledger`: 1-based page offset, mutable default, split transaction; `rv-cache`: per-user page cached by path, TTL in the wrong unit, error responses cached). 10 runs per arm:
 
@@ -81,7 +93,10 @@ Substance per dollar is flat: none 1.08, engineering 1.13, custom 1.05 substance
 | built-in `/code-review` | 100% | 1.00 | **0.10** | **2.8** | $0.268 |
 | `defect-first-review` | 100% | **0.60** | 0.20 | 0.5 | $0.329 |
 
-Custom vs built-in on these repos: false positives −0.4 [−0.9, +0.2], cost +$0.06 [+$0.03, +$0.09].
+On these repos, false positives:
+- Custom vs built-in: −0.4 [−0.9, +0.2]; custom costs +$0.06 [+$0.03, +$0.09].
+- `engineering:code-review` vs custom: +0.9 [+0.5, +1.3].
+- `engineering:code-review` vs built-in: +0.5 [+0.1, +0.9].
 
 ## Limits
 
@@ -94,7 +109,9 @@ Custom vs built-in on these repos: false positives −0.4 [−0.9, +0.2], cost +
 
 ## Proposed decision row (not added to ORCHESTRATION-DECISIONS.md)
 
-| G-47 | Head-to-head of the overlapping skills (2026-11-03) | Keep custom; switch to Anthropic; split | Incident: keep the sre skills. Review: switch to the built-in `/code-review`, keeping `defect-first-review` only where zero noise on clean changes matters (for example the delivery gate). `engineering:incident-response` and `engineering:code-review` stay off (G-14, G-46). | 215 forced-skill `claude -p` sessions (Opus 5.5), 5 reps, 3 blind Sonnet graders; $95 sessions + $37 grading. Incident substance: custom 93% vs engineering 80% (+13.0 [+8.4, +17.7]) and none 80%, for +$0.18 per run; engineering invents facts in 19/25 runs. The postmortem skill adds format only (82% vs 89% substance). Review: all arms 100% planted-bug recall, including two harder repos. `defect-first-review` has fewer false positives (0.23 vs 0.66 per run), mostly on a clean refactor, for +$0.08 per run; the built-in reports more other real issues (1.9 vs 0.5). |
+G-47 is the next free number on `origin/master`. It also replaces the stage-1 routing row, which had proposed G-46 before that number was taken.
+
+| G-47 | Head-to-head of the overlapping skills (2026-11-03) | Incident: custom sre skills, `engineering:incident-response`, none. Review: check G-46 against the data | Incident: keep the sre skills; `engineering:incident-response` stays off (G-14). Review: G-46 stands (`engineering:code-review` is the delivery reviewer). Its cost is noise, not missed bugs. Revisit with the built-in `/code-review` if review noise becomes a problem. | 215 forced-skill `claude -p` sessions (Opus 5.5), 5 reps, 3 blind Sonnet graders; $95 sessions + $37 grading. Incident substance: custom 93% vs engineering 80% (+13.0 [+8.4, +17.7]) and none 80%, for +$0.18 per run; engineering invents facts in 19/25 runs; the postmortem skill adds format only (82% vs 89%). Review: every arm found 100% of planted defects, including two harder repos. `engineering:code-review` costs $0.13 less per run than `defect-first-review` but has +0.31 false positives per run (+0.90 on the harder repos) and equals no skill on recall and false positives. The built-in had fewer false positives than it on the harder repos (−0.50) for +$0.05 per run. Stage 1 routing: neither engineering skill won a natural request while the custom skills were installed. |
 
 ## Files
 

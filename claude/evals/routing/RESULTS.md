@@ -77,6 +77,8 @@ One model, Opus 5.5, the user's default. Sonnet or Haiku may route differently. 
 
 ## Proposed decision row (not added to ORCHESTRATION-DECISIONS.md)
 
+Superseded: G-46 on master is now the code-reviewer decision (PR #7). The routing findings are folded into the stage-2 row, G-47, in `../headtohead/RESULTS.md`. Kept here as originally proposed:
+
 | G-46 | Routing test of the overlapping skills (2026-10-28) | Turn off `engineering:incident-response` and `engineering:code-review` (G-14); keep them | G-14 stands: turning both off does not change routing. Keep the built-in `code-review`. Tighten `defect-first-review`'s triggers. | 264 `claude -p` sessions (Opus 5.5), 44 natural prompts × 2 arms × 3 reps, $38.87. With the custom skills installed, neither engineering skill won a run (0/66 each) and the built-in `code-review` took no review request. The custom incident skills took 63/66. `defect-first-review` fired in 27/42 of its runs; the rest were inline reviews (12) and `security-review` (3). Without the custom skills, `engineering:incident-response` fired in 14/30 fair runs and `engineering:code-review` in 2/54. The only loss from turning them off is that fallback. |
 
 ## Files
