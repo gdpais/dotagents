@@ -9,7 +9,7 @@ Working copies of the Claude skills: the incident, RCA, review and COO skills po
 - `workflows/<name>/` - per-workflow decision log (`DECISIONS.md`), summary and Mermaid diagram (`workflow.mmd`).
 - `ORCHESTRATION-DECISIONS.md` - cross-workflow decisions (G-xx).
 - `overview.mmd` - how the skills hand off to each other.
-- `evals/` - test prompts and expectations per iteration (fixtures and run outputs are not stored); `evals/harness/` runs the delivery evals as real headless sessions.
+- `evals/` - test prompts and expectations per iteration (fixtures and run outputs are not stored); `evals/harness/` runs the delivery evals as real headless sessions; `evals/routing/` and `evals/headtohead/` measure the overlapping incident and review skills (G-47).
 - `tools/validate_skills.ts` - checks frontmatter, names, script mentions, hand-offs and links. Run `bun run lint` and `bun run test` from the repository root; CI runs both.
 - `tools/usage_report.ts` - reads the Claude Code transcripts in `~/.claude/projects` and writes the datasets behind the "Skills and workflows usage" dashboard (skill and workflow runs, delivery gate events, cost, models, tools, permissions) to `~/.claude/usage-report/`, outside the repository. Run `bun run usage`, then ask Claude to refresh the dashboard from those files. Custom skills and workflows are read from this folder, so new ones show up without changes to the script.
 - `tools/permission_audit.ts` - lists the tool calls that stopped for permission and who stopped them (you, a hook, or auto mode's classifier), from the `permissionDecision` Claude Code records on each tool result. Run `bun claude/tools/permission_audit.ts --project Heartbeat --since 2026-10-22` when Claude asks for things it shouldn't.
