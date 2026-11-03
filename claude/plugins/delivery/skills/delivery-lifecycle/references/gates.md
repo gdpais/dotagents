@@ -27,12 +27,15 @@ Each gate is a checklist judged on evidence. Mark every line `pass`, `fail`, `n/
 | Line | Source |
 |---|---|
 | Quality gate green on the final diff | `quality_gate.ts --run all` exit code |
-| No open P0/P1 | `defect-first-review` |
+| No open Critical or High finding | `engineering:code-review` |
 | No open exploitable security finding; secrets scan clean | `security-review` + `scan_secrets.ts` (when the security gate is required) |
 | No `regression` verdict, or a recorded budget exception | `performance-review` (when the performance gate is required) |
-| Migration is backward compatible (expand → migrate → contract) or has a tested rollback | `defect-first-review` data lens, `engineering:deploy-checklist` |
+| Migration is backward compatible (expand → migrate → contract) or has a tested rollback | `engineering:code-review`, `engineering:deploy-checklist` |
 | No `high` on changed CI/CD files | `ci-cd-pipeline` audit (when the infra gate is required) |
 | CI status on the branch | user, `gh pr checks`, or source-control connector |
+| Risk rated in the reviewing session, route followed | `pr_risk.ts --pr <n> --review <verdict>`: low, medium or breaking, raised (never lowered) by the review |
+
+**Merge by risk** (opt-in `autonomy.merge` in `.claude/delivery.json`): low merges on green; medium is Claude's call between merging on green (review `ok`, evidence shows it working), blocking it (Critical or High findings, or not right yet) and asking with evidence; breaking, or any doubt between medium and breaking, waits for the user's review and approval. An ask carries the product-facing evidence `pr_risk.ts` lists for the project: screenshots and a recording for UI, a live demo for services, a local-cluster run for charts and infra, a transcript for CLIs, and well-defined test results plus CI for everything.
 
 ## Release gate (Stage 5)
 
@@ -54,7 +57,7 @@ Each gate is a checklist judged on evidence. Mark every line `pass`, `fail`, `n/
 | 5 Release | library or repo with no release process, or continuous deploy on merge handled by CI | `release: by CI on merge` |
 | 6 Operate | nothing was deployed | `operate: n/a` |
 
-Review (Stage 4 `defect-first-review`) is never skipped for code that will merge.
+Review (Stage 4 `engineering:code-review`) is never skipped for code that will merge.
 
 ## Approval matrix
 
@@ -64,7 +67,8 @@ Review (Stage 4 `defect-first-review`) is never skipped for code that will merge
 | ADR accepted | user / architect | stays `proposed` |
 | Create branch, local commits | implied by "build it" | allowed |
 | Push to a feature branch, open a draft PR | user | ask once per work item |
-| Merge, push to the default branch | user | never without explicit request |
+| Merge a low or medium PR on green | user, once, via `autonomy.merge` | ask without it |
+| Merge a breaking PR, push to the default branch | user | never without explicit request; breaking merges come with evidence |
 | Tag, publish package, create GitHub release | user | never without explicit request |
 | Deploy, run production migration, flip production flag | user (and the org's change process) | never without explicit request |
 | Post comments, update tickets, send messages | user | ask; standing authorization per destination allowed |

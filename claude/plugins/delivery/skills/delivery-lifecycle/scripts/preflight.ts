@@ -31,6 +31,7 @@ export interface Preflight {
   target: Record<string, string>;
   size: string;
   totals: Classified["totals"];
+  changed: string[];
   quality: { kind: string; command: string; passed: boolean; exit_code: number; timed_out: boolean; no_tests: boolean; duration_s: number; output_tail: string }[];
   not_detected: string[];
   secrets: Finding[];
@@ -126,7 +127,7 @@ export async function preflight(cwd: string, opts: { base?: string; range?: stri
     ...ci.filter((f) => f.level === "high").map((f) => `CI ${f.id} in ${f.file}${f.job ? ` job ${f.job}` : ""}: ${f.message}`),
   ];
   return {
-    ok: blocking.length === 0, target: c.target, size: c.size, totals: c.totals,
+    ok: blocking.length === 0, target: c.target, size: c.size, totals: c.totals, changed: c.changed,
     quality: quality.map(({ kind, command, passed, exit_code, timed_out, no_tests, duration_s, output_tail }) => ({ kind, command, passed, exit_code, timed_out, no_tests, duration_s, output_tail })),
     not_detected: notDetected, secrets, ci, reviews, advisories, blocking,
   };

@@ -27,7 +27,7 @@ test("docs-only change needs review but no security, perf or tests gate", () => 
   expect(r.gates.performance.level).toBe("skip");
   expect(r.gates.tests.level).toBe("skip");
   expect(r.size).toBe("S");
-  expect(r.next).toEqual(["defect-first-review"]);
+  expect(r.next).toEqual(["engineering:code-review"]);
 });
 
 test("auth path and source without tests trigger security and tests gates", () => {

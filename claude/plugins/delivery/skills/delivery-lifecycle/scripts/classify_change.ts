@@ -53,7 +53,7 @@ const DEPENDENCY = /(^|\/)(package\.json|package-lock\.json|yarn\.lock|pnpm-lock
 const MIGRATION = /(^|\/)(migrations?|migrate|alembic|flyway|liquibase|db\/schema)\/|\.sql$|(^|\/)schema\.(prisma|rb)$/i;
 const INFRA = /(^|\/)(\.github\/workflows\/|\.gitlab-ci\.yml$|Jenkinsfile$|\.circleci\/|azure-pipelines\.yml$|Dockerfile[^/]*$|docker-compose[^/]*\.ya?ml$|compose\.ya?ml$|helm\/|charts\/|k8s\/|kubernetes\/|manifests\/|terraform\/|Procfile$|fly\.toml$|vercel\.json$|netlify\.toml$|serverless\.ya?ml$)|\.tf$|\.tfvars$/;
 const SECURITY_PATH = /(^|[\/_.-])(auth\w*|login|logout|session|sessions|token|tokens|oauth|oidc|saml|jwt|password|passwd|crypto|secret|secrets|permission|permissions|rbac|acl|iam|policy|policies|security|csrf|cors|sanitiz\w*|middleware)([\/_.-]|$)|(^|\/)\.env(\.|$)|\.(pem|key|p12|pfx)$/i;
-const TEST = /(^|\/)(tests?|__tests__|spec|specs|e2e)\/|\.(test|spec)\.\w+$|_test\.(go|py)$|(^|\/)test_[^/]+\.py$/i;
+export const TEST = /(^|\/)(tests?|__tests__|spec|specs|e2e)\/|\.(test|spec)\.\w+$|_test\.(go|py)$|(^|\/)test_[^/]+\.py$/i;
 const SOURCE = /\.(ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|kt|rb|php|cs|swift|scala|c|cc|cpp|h|hpp|ex|exs|vue|svelte)$/i;
 const DOCS = /\.(md|mdx|rst|txt|adoc)$/i;
 
@@ -227,7 +227,7 @@ export function classify(changes: FileChange[], config: Config = {}) {
 
   const next: string[] = [];
   if (gates.tests.level === "required" || reviewed.some((f) => SOURCE.test(f.path))) next.push("quality_gate.ts --run all");
-  if (gates.review.level !== "skip") next.push(fanOut ? "defect-first-review (fan out lenses)" : "defect-first-review");
+  if (gates.review.level !== "skip") next.push("engineering:code-review");
   if (gates.security.level === "required") next.push("security-review + scan_secrets.ts");
   if (gates.performance.level === "required") next.push("performance-review");
   if (gates.infra.level === "required") next.push("ci-cd-pipeline (audit)");

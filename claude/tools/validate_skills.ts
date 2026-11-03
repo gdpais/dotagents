@@ -21,9 +21,10 @@ import { dirname, join, relative, resolve } from "node:path";
 import { parseArgs } from "node:util";
 
 // Anthropic engineering skills the custom skills may hand off to (G-14 keeps these on).
-export const ENGINEERING_KEPT = new Set(["architecture", "debug", "deploy-checklist", "documentation", "system-design", "tech-debt", "testing-strategy", "standup"]);
-// Turned off in the user's setup (G-14); naming them is fine only to say "prefer X over it".
-const ENGINEERING_OFF = new Set(["code-review", "incident-response"]);
+export const ENGINEERING_KEPT = new Set(["architecture", "code-review", "debug", "deploy-checklist", "documentation", "system-design", "tech-debt", "testing-strategy", "standup"]);
+// Meant to be off in the user's setup (G-14); naming them is fine only to say "prefer X over it". code-review
+// is the delivery reviewer since DL-78.
+const ENGINEERING_OFF = new Set(["incident-response"]);
 
 export interface Issue { level: "error" | "warning"; file: string; message: string }
 

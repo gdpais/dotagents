@@ -1,5 +1,7 @@
 # Code review port — summary
 
+**Retired 2026-11-02 (CR-33, DL-78):** `defect-first-review` was removed. Code review in the delivery workflow is `engineering:code-review`. The notes below are kept as history.
+
 **Skill produced:** `skills/defect-first-review/` — SKILL.md (214 lines), references (target-resolution, coverage-lenses, subagent-briefs, github-posting), `scripts/resolve_review_target.py` (read-only merge-base resolver) with 10 unit tests (pass via `python3 -m unittest`).
 
 **Source note:** the Codex source `.system/review-agent` is an OpenAI-shipped system skill, not user-authored (CR-01). Its rules are kept near-verbatim because they are the strongest contract and match the user's evidence-led style.

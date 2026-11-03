@@ -1,7 +1,7 @@
 {
   "name": "delivery",
-  "version": "3.1.2",
-  "description": "Software delivery workflow: automatic quality, secrets and review gates via hooks; an opt-in autonomy policy so approved shipping steps (push, PR, cleanup, next backlog item) need no hand-holding; skills for planning, merge readiness, performance (p90/p95) and CI/CD audits. Uses Anthropic skills (security-review, engineering:*) where they exist.",
+  "version": "3.2.1",
+  "description": "Software delivery workflow: automatic quality, secrets and review gates via hooks; an opt-in autonomy policy so approved shipping steps (review, push, PR, Auto-fix, risk-rated merge, cleanup, next backlog item) need no hand-holding; skills for planning, merge readiness, performance (p90/p95) and CI/CD audits. Uses Anthropic skills (security-review, engineering:*) where they exist.",
   "author": {
     "name": "gabs"
   }
