@@ -1,0 +1,8 @@
+{
+  "name": "coo",
+  "version": "1.0.0",
+  "description": "On-demand COO portfolio review: priorities, risks and decisions across projects, stored under the project where it runs and optionally synced with Linear.",
+  "author": {
+    "name": "gabs"
+  }
+}

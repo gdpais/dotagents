@@ -51,7 +51,8 @@ export function loadCatalog(root: string): Catalog {
   const prefixes = new Set(["anthropic-skills"]);
   for (const p of dirs(join(root, "plugins"))) {
     prefixes.add(p);
-    for (const s of dirs(join(root, "plugins", p, "skills"))) custom.set(s, [p, p[0].toUpperCase() + p.slice(1) + " plugin"]);
+    const label = (p.length <= 3 ? p.toUpperCase() : p[0].toUpperCase() + p.slice(1)) + " plugin"; // sre -> SRE, delivery -> Delivery
+    for (const s of dirs(join(root, "plugins", p, "skills"))) custom.set(s, [table.get(s) ?? p, label]);
   }
   const workflows = dirs(join(root, "workflows"));
   const own = (w: string) => [...custom.values()].filter(([wf]) => wf === w).length;

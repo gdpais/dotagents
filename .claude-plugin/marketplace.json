@@ -9,6 +9,18 @@
       "description": "Software delivery workflow with automatic quality, secrets and review gates (hooks) and skills for planning, merge readiness, performance and CI/CD.",
       "source": "./claude/plugins/delivery",
       "category": "development"
+    },
+    {
+      "name": "sre",
+      "description": "Incident response and root-cause analysis: phase-by-phase incident coordination, live status reports, postmortems, evidence-led RCA and technical emails.",
+      "source": "./claude/plugins/sre",
+      "category": "productivity"
+    },
+    {
+      "name": "coo",
+      "description": "On-demand COO portfolio review across projects, stored under the project where it runs.",
+      "source": "./claude/plugins/coo",
+      "category": "productivity"
     }
   ]
 }

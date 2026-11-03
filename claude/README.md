@@ -1,11 +1,13 @@
 # Claude skills and workflows
 
-Working copies of the Claude skills: the incident, RCA, review and COO skills ported from `~/.codex/skills`, and the delivery workflow (planning to production) built here. They live here until they are final and copied into `~/.claude/skills`.
+The Claude skills, packaged as plugins in the `dotagents` marketplace: the incident, RCA, review and COO skills ported from `~/.codex/skills`, and the delivery workflow (planning to production) built here. Installed plugins show their skills namespaced, e.g. `sre:tech-email`.
 
 ## Layout
 
-- `skills/` - one folder per skill (SKILL.md, references/, scripts/). Copy a folder into `~/.claude/skills/` to install it.
-- `plugins/delivery/` - the delivery workflow as a Claude Code plugin: four skills plus hooks (`hooks/`) that run the gates automatically. See *Install the delivery plugin* below.
+- `plugins/<plugin>/skills/` - one folder per skill (SKILL.md, references/, scripts/). See *Install the plugins* below.
+- `plugins/delivery/` - the delivery workflow: five skills plus hooks (`hooks/`) that run the gates automatically.
+- `plugins/sre/` - incident response and RCA: five skills.
+- `plugins/coo/` - the COO portfolio review.
 - `workflows/<name>/` - per-workflow decision log (`DECISIONS.md`), summary and Mermaid diagram (`workflow.mmd`).
 - `ORCHESTRATION-DECISIONS.md` - cross-workflow decisions (G-xx).
 - `overview.mmd` - how the skills hand off to each other.
@@ -16,29 +18,35 @@ Working copies of the Claude skills: the incident, RCA, review and COO skills po
 
 ## Skills
 
-| Skill | Workflow | Use |
-|---|---|---|
-| sre-incident-lifecycle | incident-response | Coordinates an active incident and loads the stage skills by phase |
-| incident-live-report | incident-response | Short live status report (about 600 words) |
-| incident-postmortem | incident-response | Blameless postmortem after the Google SRE example |
-| tech-email | incident-response | Technical email, only when explicitly asked |
-| rca-investigation | rca | Evidence-led root cause analysis |
-| coo-portfolio-review | coo-review | Portfolio review, on demand, stored under the project where it runs |
+| Skill | Workflow | Plugin | Use |
+|---|---|---|---|
+| sre-incident-lifecycle | incident-response | sre | Coordinates an active incident and loads the stage skills by phase |
+| incident-live-report | incident-response | sre | Short live status report (about 600 words) |
+| incident-postmortem | incident-response | sre | Blameless postmortem after the Google SRE example |
+| tech-email | incident-response | sre | Technical email, only when explicitly asked |
+| rca-investigation | rca | sre | Evidence-led root cause analysis |
+| coo-portfolio-review | coo-review | coo | Portfolio review, on demand, stored under the project where it runs |
 
 The delivery skills (`delivery-lifecycle`, `feature-planning`, `performance-review`, `ci-cd-pipeline`) ship in the `delivery` plugin.
 
 Turn off `engineering:incident-response` in the app when it is installed (G-14). Keep `engineering:code-review` on: it is the delivery workflow's reviewer (G-46). The delivery workflow also relies on the built-in `security-review` and on `engineering:deploy-checklist`, `architecture`, `system-design`, `testing-strategy`, `debug`, `tech-debt` and `documentation`; keep those on.
 
-## Install the delivery plugin
+## Install the plugins
 
-Requires `bun` on `PATH` or in `~/.bun/bin` (the hooks and scripts are TypeScript run by bun). Without it the gates are skipped rather than failing, and a notice at session start says so.
+Install at user scope so every project gets them. The delivery hooks and the RCA helpers need `bun` on `PATH` or in `~/.bun/bin`; without it the gates are skipped rather than failing, and a notice at session start says so.
 
 ```
-/plugin marketplace add /Users/gabiru/personal/dotagents
-/plugin install delivery@dotagents
+claude plugin marketplace add gdpais/dotagents
+claude plugin install delivery@dotagents --scope user
+claude plugin install sre@dotagents --scope user
+claude plugin install coo@dotagents --scope user
 ```
 
-Or for one session only: `claude --plugin-dir /Users/gabiru/personal/dotagents/claude/plugins/delivery`.
+After a merge, `claude plugin marketplace update dotagents` and `claude plugin update <plugin>@dotagents` pick up the new version. Don't also copy these skills into `~/.claude/skills` or upload them to claude.ai: the copy shows up a second time without the plugin prefix.
+
+Or for one session only: `claude --plugin-dir /Users/gabiru/personal/dotagents/claude/plugins/<plugin>`.
+
+## Delivery plugin
 
 What it does without being asked: when Claude finishes a turn in which it edited files, the Stop hook runs `preflight` (the repo's lint, typecheck and tests, a secrets scan on the diff, a CI audit when workflows changed) and sends back failures and any review the change needs (security, performance, migrations, CI). `git commit` is checked for secrets; push, tag, merge, publish and deploy commands ask first. Per project, `.claude/delivery.json` can set `preflight.run` (which checks), `preflight.timeoutSeconds`, `hotPaths`, `securityPaths`, `ignore`, or `stopGate: false`.
 
