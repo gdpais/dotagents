@@ -20,6 +20,19 @@ Use the repository's `.github/pull_request_template.md` when it exists; otherwis
 | Secrets | `scan_secrets.ts --diff origin/main...HEAD` (delivery-lifecycle) | clean |
 | Manual | <steps the user performed, if any> | <result> |
 
+## Review (engineering:code-review)
+The skill's tables as it wrote them, with each finding's status:
+
+| # | File | Line | Issue | Severity | Status |
+|---|------|------|-------|----------|--------|
+| 1 | `src/x.ts` | 42 | <issue> | 🔴 Critical | fixed in `abc1234` |
+
+| # | File | Line | Suggestion | Category | Status |
+|---|------|------|------------|----------|--------|
+| 1 | `src/y.ts` | 7 | <suggestion> | Maintainability | open (Low) |
+
+Verdict: <Approve / Request Changes / Needs Discussion>. Decision: <the `pr_risk.ts --format md` table row and Next line>.
+
 ## Risk and rollout
 - Risk: <low/medium/high with one-line reason; name security, data or performance areas touched>
 - Rollout: <flag name and default | migration order | none>

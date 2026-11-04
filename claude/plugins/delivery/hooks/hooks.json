@@ -1,5 +1,5 @@
 {
-  "description": "Delivery workflow gates: run preflight (tests, lint, typecheck, secrets, review routing) when Claude finishes a turn that edited files; scan commits for secrets; ask before pushes, tags, merges, releases and deploys. With an autonomy policy in .claude/delivery.json (v3), the approved steps (review, push feature branches, open PRs, turn on Auto-fix, clean up merged branches, continue the backlog) run without asking; since v3.2 the hooks approve them outright, so auto mode's classifier doesn't stop them either. Skipped, with one notice at session start, when bun is missing.",
+  "description": "Delivery workflow gates: run preflight (tests, lint, typecheck, secrets, review routing) when Claude finishes a turn that edited files; scan commits for secrets; ask before pushes, tags, merges, releases and deploys. With an autonomy policy in .claude/delivery.json (v3), the approved steps (review, push feature branches, open PRs, turn on Auto-fix, risk-rated merges, clean up merged branches, continue the backlog) run without asking, and the hooks approve them outright so auto mode's classifier doesn't stop them either. v3.3: with \"review\": \"session\", each new PR gets a review session that shows engineering:code-review's tables, fixes, rates and merges or stops by risk; a turn that ran the review must show its tables. Skipped, with one notice at session start, when bun is missing.",
   "hooks": {
     "SessionStart": [
       {
@@ -40,11 +40,23 @@
         ]
       },
       {
-        "matcher": "mcp__ccd_pr__set_monitor",
+        "matcher": "mcp__ccd_pr__set_monitor|mcp__ccd_pr__bind_pr|mcp__ccd_pr__get_status|mcp__ccd_session__start_session",
         "hooks": [
           {
             "type": "command",
-            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/run.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/pr_monitor.ts\"",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/run.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/app_tools.ts\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/run.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/pr_opened.ts\"",
             "timeout": 10
           }
         ]
