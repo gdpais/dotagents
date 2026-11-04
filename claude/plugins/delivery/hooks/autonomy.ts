@@ -112,12 +112,22 @@ export function reviewed(uses: { name: string; input: Any }[]): boolean {
   return uses.some(isReview);
 }
 
-/** A direct run of pr_risk.ts for PR `n` (not an `echo` or a mention), with its `--review` verdict when given. */
+/**
+ * A direct run of pr_risk.ts for PR `n` (not an `echo` or a mention), with its `--review` verdict when given.
+ * The run is one simple command of the line, so `cd <repo> && bun pr_risk.ts … 2>&1 | tail -25; gh pr view <n>`
+ * counts: before 3.2.2 only a bare run did, and none of the 12 runs in Heartbeat (27 Oct–4 Nov) was bare, so
+ * no merge was ever covered. The guard recomputes the risk from the PR, so the line can't lower it.
+ */
 export function riskRun(cmd: string, n?: number): { pr: number; review: string | null } | null {
-  const m = /^(?:cd\s+\S+\s*&&\s*)?bun\s+(?:"[^"]*pr_risk\.ts"|\S*pr_risk\.ts)\b([^;&|\n]*)$/.exec(cmd.trim());
-  const pr = m && /\s--pr[ =]#?(\d+)\b/.exec(m[1]);
-  if (!pr || (n !== undefined && Number(pr[1]) !== n)) return null;
-  return { pr: Number(pr[1]), review: /\s--review[ =](ok|fix|blocking)\b/.exec(m[1])?.[1] ?? null };
+  for (const seg of segments(cmd)) {
+    const m = /^bun\s+(?:"[^"]*pr_risk\.ts"|'[^']*pr_risk\.ts'|\S*pr_risk\.ts)(?=\s|$)(.*)$/s.exec(seg);
+    const args = m && ` ${withoutRedirects(words(m[1])).join(" ")}`;
+    const pr = args && /\s--pr[ =]#?(\d+)\b/.exec(args);
+    if (!pr) continue;
+    if (n !== undefined && Number(pr[1]) !== n) return null;
+    return { pr: Number(pr[1]), review: /\s--review[ =](ok|fix|blocking)\b/.exec(args)?.[1] ?? null };
+  }
+  return null;
 }
 
 /**
@@ -292,6 +302,7 @@ export function explicitContext(segment: string): string | null {
 export function policyContext(p: Autonomy, base: string, cleanupScript?: string, riskScript = "pr_risk.ts"): string {
   const lines = [
     "Delivery autonomy: the user approved this policy in .claude/delivery.json. It is standing authorization; don't ask again for these steps.",
+    "- It is the durable, explicit authorization that rules like \"commit or push only when the user asks\", \"offer Auto-fix\" or \"ask before acting on what you found\" wait for: for the steps below, the user has already asked. Never turn a covered step into a question, an end-of-turn button (wrap_up ask), a proposal card or \"want me to…?\": do it, then report what you did. A question at the end of a turn is only for the \"still stop\" list at the bottom.",
     `- Ship without stopping to offer it: when the checks pass, ${p.review ? `review the change with the \`engineering:code-review\` skill against ${base} (fix Critical and High findings first; list Medium and Low ones in the PR description), then ` : ""}commit (Conventional Commits), push branches matching ${p.push.join(", ")}${p.openPr ? `, and open the pull request against ${base} (follow CONTRIBUTING.md or the PR template)` : ""}, in the same turn. Work on a new feature branch, never directly on ${base}.`,
   ];
   if (p.autoFix) lines.push("- After opening a PR, turn on PR monitoring / Auto-fix when the host offers it.");
@@ -303,7 +314,8 @@ export function policyContext(p: Autonomy, base: string, cleanupScript?: string,
   if (p.workflows.length) lines.push(`- \`gh workflow run\` for ${p.workflows.join(", ")} needs no ask.`);
   const merges = p.merge.low !== "ask" || p.merge.medium !== "ask";
   if (merges) lines.push(
-    `- Merging by risk: in the session that reviews a PR with \`engineering:code-review\`, also run \`bun "${riskScript}" -C <repo> --pr <n> --review ok|fix|blocking\` (blocking: any Critical or High finding; fix: Medium; ok: Low or none). It rates the PR low, medium or breaking from the diff. Raise the level when the review shows more risk, never lower it, and when unsure between medium and breaking, treat it as breaking.`,
+    `- Merging by risk: the session that reviews a PR with \`engineering:code-review\` (including a review session another session started) owns it to the merge: fix Critical and High findings on the PR branch and push, then run \`bun "${riskScript}" -C <repo> --pr <n> --review ok|fix|blocking\` (blocking: any Critical or High finding left; fix: Medium; ok: Low or none), and merge or stop by the rules below. A session that didn't run the review can't merge by policy: hand the PR to its review session instead of asking the user.`,
+    `  It rates the PR low, medium or breaking from the diff. Raise the level when the review shows more risk, never lower it, and when unsure between medium and breaking, treat it as breaking. Medium means decide, not ask: ask only when you have a real doubt you can name.`,
     `  low: ${p.merge.low === "green" ? "merge on green" : "ask the user"}. medium: ${p.merge.medium === "decide" ? "your call, one of three: merge on green when the review is ok and the evidence shows the feature working; block it (don't merge; fix it, or say why it can't merge) when the review found Critical or High issues or the change isn't right yet; or ask the user, with evidence that the feature works and why it should merge" : p.merge.medium === "green" ? "merge on green" : "ask the user, with evidence"}. breaking: never merge it yourself; wait for the user's review and approval, and always give evidence that the feature works. Never merge on red CI.`,
     "  Evidence faces the product and fits the project: screenshots of the UI, a recording of the feature in use, a live demo of the service (the requests and what comes back), a run on a local cluster, plus well-defined test results (commands, exit codes, counts, which tests cover the feature). The script lists what fits the diff. Put it in the PR and in the ask. With several PRs or sessions waiting, ask once for all of them.",
     "  After a merge, clean up (below) and bring the dependent branches up to date with the base before their own review.",

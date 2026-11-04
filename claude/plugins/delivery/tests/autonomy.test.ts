@@ -6,7 +6,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { approvedMerges, assessedPr, globMatch, parseAutonomy, policyContext, pushOutsidePolicy, segments } from "../hooks/autonomy";
+import { approvedMerges, assessedPr, globMatch, parseAutonomy, policyContext, pushOutsidePolicy, riskRun, segments } from "../hooks/autonomy";
 import { mergedPr, outsidePolicy, policyMerges, routineOnly } from "../hooks/bash_guard";
 import type { Risk } from "../skills/delivery-lifecycle/scripts/pr_risk";
 import { asksToHold, lastUserPrompt, openedPr, reviewed } from "../hooks/stop_gate";
@@ -131,6 +131,20 @@ test("merge by risk: the review verdict reaches the guard, and each review count
   expect(assessedPr([review, run("bun /p/pr_risk.ts --pr 6 --review ok"), run("bun /p/pr_risk.ts --pr 7 --review ok")], 7)).toBeNull();
   expect(assessedPr([run("bun /p/pr_risk.ts --pr 7 --review ok"), review], 7)).toBeNull();
   expect(assessedPr([review, run(`cd /repo && bun "/p/pr_risk.ts" -C . --pr=7 --review ok`)], 7)).toBe("ok");
+  // Real runs from Heartbeat (27 Oct–4 Nov): none was bare, so none counted before 3.2.2.
+  for (const [cmd, pr, v] of [
+    [`bun "/c/pr_risk.ts" -C . --pr 121 --review ok 2>&1 | tail -12`, 121, "ok"],
+    [`bun "/c/pr_risk.ts" -C "$(pwd)" --pr 114 --review ok; echo EXIT $?; gh pr checks 114`, 114, "ok"],
+    [`cd /Users/g/Heartbeat && bun "/c/pr_risk.ts" -C . --pr 120 --review fix 2>&1 | tail -25; gh pr view 120 --json state`, 120, "fix"],
+    [`gh pr checks 118 >/dev/null && bun /c/pr_risk.ts -C "$PWD" --pr 118 --review ok 2>&1 | tail -50`, 118, "ok"],
+  ] as [string, number, string][]) {
+    expect(riskRun(cmd)).toEqual({ pr, review: v });
+    expect(assessedPr([review, run(cmd)], pr)).toBe(v);
+  }
+  // Still not a run: a mention, a grep or a quoted string.
+  expect(riskRun(`grep -n "bun pr_risk.ts --pr 7 --review ok" notes.md`)).toBeNull();
+  expect(riskRun(`echo "bun /p/pr_risk.ts --pr 7 --review ok" | tee x`)).toBeNull();
+  expect(riskRun(`bun /p/pr_risk_old.ts --pr 7 --review ok`)).toBeNull();
   // One deadline for all the GitHub calls: out of time means asking.
   expect((await policyMerges([7], parseAutonomy({ autonomy: { ...POLICY.autonomy, merge: { low: "green" } } })!, "/x", [review, run("bun /p/pr_risk.ts --pr 7 --review ok")], async () => "x", 1_000)).why).toContain("in time");
 });
@@ -151,6 +165,10 @@ test("policyContext: merge rules by risk only when the policy has them", () => {
   expect(ctx).toContain("when unsure between medium and breaking, treat it as breaking");
   expect(ctx).toContain("blocking: any Critical or High finding");
   expect(ctx).toContain("ask once for all of them");
+  expect(ctx).toContain("including a review session another session started");
+  expect(ctx).toContain("hand the PR to its review session instead of asking the user");
+  // Host rules ("commit or push only when asked", "ask before acting on what you found") must not turn covered steps into asks.
+  expect(policyContext(policy, "master")).toContain("Never turn a covered step into a question, an end-of-turn button");
   expect(policyContext(policy, "master")).not.toContain("Merging by risk");
 });
 
