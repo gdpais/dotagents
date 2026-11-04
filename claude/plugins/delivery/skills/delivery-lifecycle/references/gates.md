@@ -33,9 +33,9 @@ Each gate is a checklist judged on evidence. Mark every line `pass`, `fail`, `n/
 | Migration is backward compatible (expand → migrate → contract) or has a tested rollback | `engineering:code-review`, `engineering:deploy-checklist` |
 | No `high` on changed CI/CD files | `ci-cd-pipeline` audit (when the infra gate is required) |
 | CI status on the branch | user, `gh pr checks`, or source-control connector |
-| Risk rated in the reviewing session, route followed | `pr_risk.ts --pr <n> --review <verdict>`: low, medium or breaking, raised (never lowered) by the review |
+| Risk rated in the reviewing session, route followed | `pr_risk.ts --pr <n> --review <verdict> --format md`: low, medium or breaking, raised (never lowered) by the review; its Decision block goes under the review's tables |
 
-**Merge by risk** (opt-in `autonomy.merge` in `.claude/delivery.json`): low merges on green; medium is Claude's call between merging on green (review `ok`, evidence shows it working), blocking it (Critical or High findings, or not right yet) and asking with evidence; breaking, or any doubt between medium and breaking, waits for the user's review and approval. An ask carries the product-facing evidence `pr_risk.ts` lists for the project: screenshots and a recording for UI, a live demo for services, a local-cluster run for charts and infra, a transcript for CLIs, and well-defined test results plus CI for everything.
+**Merge by risk** (opt-in `autonomy.merge` in `.claude/delivery.json`; with `"review": "session"` each PR's own review session decides): low merges on green (merged now when CI is green, or GitHub auto-merge pinned to the reviewed head while the base's required checks run); medium is Claude's call between merging on green (review `ok`, evidence shows it working), blocking it (Critical or High findings, or not right yet) and asking with evidence; breaking, or any doubt between medium and breaking, waits for the user's review and approval. An ask carries the product-facing evidence `pr_risk.ts` lists for the project: screenshots and a recording for UI, a live demo for services, a local-cluster run for charts and infra, a transcript for CLIs, and well-defined test results plus CI for everything.
 
 ## Release gate (Stage 5)
 

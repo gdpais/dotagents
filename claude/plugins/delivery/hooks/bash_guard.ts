@@ -16,6 +16,10 @@
  *     engineering:code-review and then ran pr_risk.ts on it with a verdict that isn't blocking, the risk
  *     (recomputed here from the PR, with that verdict) is a level the policy merges, and CI is green.
  *     Breaking changes always ask.
+ *   - v3.3: `gh pr merge <n> --auto --match-head-commit <head>` (GitHub merges that head once the base's
+ *     required checks pass) is covered the same way while CI is still running; `--admin` never is. Pushes
+ *     with GitHub CLI as the credential helper, behind `timeout`, or to a branch held in a variable set on the
+ *     same line are read, and `gh workflow run --repo` naming this repository counts as this repository.
  * Everything else passes through untouched (no output, exit 0).
  */
 import { existsSync, readFileSync, realpathSync } from "node:fs";
@@ -23,7 +27,7 @@ import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { prRisk } from "../skills/delivery-lifecycle/scripts/pr_risk";
 import { scanPatch } from "../skills/delivery-lifecycle/scripts/scan_secrets";
-import { approvedMerges, assessedPr, explicitContext, globMatch, lastUserPrompt, loadConfig, parseAutonomy, pushOutsidePolicy, segments, toolUses, type Autonomy } from "./autonomy";
+import { approvedMerges, assessedPr, compoundBody, expandVars, realPath, explicitContext, gitGlobalsOk, globMatch, lastUserPrompt, literalVars, loadConfig, parseAutonomy, pushOutsidePolicy, segments, shellWords, toolUses, unwrapTimeout, type Autonomy, type ToolUse } from "./autonomy";
 
 /**
  * `git tag` creates a tag only with a creation flag or a tag name; listing (no name,
@@ -202,22 +206,45 @@ const tokens = (s: string) => (s.match(/"[^"]*"|'[^']*'|\S+/g) ?? []).map((w) =>
  * The PR a `gh pr merge` segment names and the repository it names, if any (`-R owner/repo`, or the
  * owner/repo of a PR URL). Null when it names no number (the current branch's PR, a variable).
  */
-export function mergedPr(seg: string): { n: number; repo: string | null } | null {
-  const t = tokens(seg);
+export interface MergeCmd { n: number; repo: string | null; auto?: boolean; head?: string | null; admin?: boolean }
+
+export function mergedPr(seg: string): MergeCmd | null {
+  const t = shellWords(seg);
   const at = t.findIndex((x, i) => x === "merge" && t[i - 1] === "pr" && t[i - 2] === "gh");
   if (at < 0) return null;
-  let n: number | null = null, repo: string | null = null;
+  let n: number | null = null, repo: string | null = null, head: string | null = null, auto = false, admin = false;
   for (let i = at + 1; i < t.length; i++) {
     const x = t[i];
     if (/^(?:-R|--repo)$/.test(x)) { repo = t[++i] ?? ""; continue; }
     if (/^--repo=/.test(x)) { repo = x.slice(7); continue; }
-    if (/^(?:-b|--body|-F|--body-file|-t|--subject|-A|--author-email|--match-head-commit)$/.test(x)) { i++; continue; }
+    if (x === "--match-head-commit") { head = t[++i] ?? ""; continue; }
+    if (x.startsWith("--match-head-commit=")) { head = x.slice(20); continue; }
+    if (x === "--auto") { auto = true; continue; }
+    if (x === "--admin") { admin = true; continue; }
+    if (/^(?:-b|--body|-F|--body-file|-t|--subject|-A|--author-email)$/.test(x)) { i++; continue; }
     if (x.startsWith("-")) continue;
     const url = /^https?:\/\/([^/]+)\/([^/]+)\/([^/]+)\/pull\/(\d+)/.exec(x);
     if (url) { n ??= Number(url[4]); repo ??= `${url[1]}/${url[2]}/${url[3]}`; continue; }
     if (/^#?\d+$/.test(x)) n ??= Number(x.replace("#", ""));
   }
-  return n === null ? null : { n, repo };
+  return n === null ? null : { n, repo, auto, head, admin };
+}
+
+/** The workflow a `gh workflow run` segment dispatches and the repository it names (`-R`/`--repo`), if any. */
+export function workflowRun(seg: string): { workflow: string; repo: string | null } | null {
+  const t = shellWords(seg);
+  const at = t.findIndex((x, i) => x === "run" && t[i - 1] === "workflow" && t[i - 2] === "gh");
+  if (at < 0) return null;
+  let workflow: string | null = null, repo: string | null = null;
+  for (let i = at + 1; i < t.length; i++) {
+    const x = t[i];
+    if (/^(?:-R|--repo)$/.test(x)) { repo = t[++i] ?? ""; continue; }
+    if (/^--repo=/.test(x)) { repo = x.slice(7); continue; }
+    if (/^(?:-r|--ref|-f|--raw-field|-F|--field)$/.test(x)) { i++; continue; }
+    if (x.startsWith("-")) continue;
+    workflow ??= x;
+  }
+  return workflow ? { workflow, repo } : null;
 }
 
 /** True when `repo` (`owner/repo`, `host/owner/repo` or empty) is this repository, by its origin remote. */
@@ -233,12 +260,16 @@ export function outsidePolicy(cmd: string, policy: Autonomy, cwd: string, kubeCo
   let here: string | null = cwd;
   let remotes: ReturnType<typeof remotesOf> | undefined;
   const repo = () => (remotes ??= remotesOf(here ?? cwd));
-  for (const seg of segments(withoutHeredocs(cmd))) {
+  const segs = segments(withoutHeredocs(cmd));
+  const vars = literalVars(segs);
+  for (const raw of segs) {
     // `cd .claude/worktrees/x && git push`: later segments run in that directory.
-    const cd = /^cd\s+(?:"([^"]+)"|'([^']+)'|(\S+))\s*$/.exec(seg);
-    if (cd) { here = here && pathFrom(here, cd[1] ?? cd[2] ?? cd[3]); remotes = undefined; continue; }
-    const label = classifyCommand(seg).irreversible;
+    const cd = /^cd\s+(?:"([^"]+)"|'([^']+)'|(\S+))\s*$/.exec(raw);
+    if (cd) { here = here && pathFrom(here, expandVars(cd[1] ?? cd[2] ?? cd[3], vars)); remotes = undefined; continue; }
+    const label = classifyCommand(raw).irreversible;
     if (!label) continue;
+    // `timeout 30 git push …` is the push; `B=feature/x; git push origin "$B"` pushes feature/x.
+    const seg = expandVars(unwrapTimeout(compoundBody(raw)), vars);
     if (WRAPPER.test(seg)) return label;
     if (label === "git push") {
       const dir = /\bgit\s+-C\s+(\S+)/.exec(seg)?.[1];
@@ -252,10 +283,9 @@ export function outsidePolicy(cmd: string, policy: Autonomy, cwd: string, kubeCo
       continue;
     }
     if (label === "cluster change" && isLocal(seg, policy, kubeContext)) continue;
-    if (label === "gh workflow run" && !/(?:^|\s)(?:-R|--repo)\b/.test(seg)) {
-      const m = /\bgh\s+workflow\s+run\s+(?:"([^"]+)"|'([^']+)'|([^\s-]\S*))/.exec(seg);
-      const wf = m?.[1] ?? m?.[2] ?? m?.[3];
-      if (wf && policy.workflows.some((g) => globMatch(g, wf))) continue;
+    if (label === "gh workflow run") {
+      const w = workflowRun(seg);
+      if (w && sameRepo(w.repo, repo().origin) && policy.workflows.some((g) => globMatch(g, w.workflow))) continue;
     }
     if (label === "gh pr merge") {
       const m = mergedPr(seg);
@@ -273,13 +303,15 @@ export function outsidePolicy(cmd: string, policy: Autonomy, cwd: string, kubeCo
  * calls share one deadline, inside the hook's timeout; running out means asking. `why` explains the first PR
  * that isn't covered.
  */
-export async function policyMerges(prs: number[], policy: Autonomy, cwd: string, uses: { name: string; input: any }[],
+export async function policyMerges(prs: (number | MergeCmd)[], policy: Autonomy, cwd: string, uses: ToolUse[],
   risk: typeof prRisk = prRisk, budgetMs = 25_000): Promise<{ covered: Set<number>; why: string | null }> {
   const covered = new Set<number>();
   let why: string | null = null;
   if (policy.merge.low === "ask" && policy.merge.medium === "ask") return { covered, why };
   const deadline = Date.now() + budgetMs;
-  for (const n of prs) {
+  for (const m of prs.map((x) => (typeof x === "number" ? { n: x, repo: null } as MergeCmd : x))) {
+    const n = m.n;
+    if (m.admin) { why ??= `PR #${n}: --admin bypasses the base branch's rules`; continue; }
     const verdict = assessedPr(uses, n);
     if (!verdict) { why ??= `PR #${n} wasn't reviewed with engineering:code-review and then assessed with \`pr_risk.ts --pr ${n} --review <verdict>\` in this session`; continue; }
     if (verdict === "blocking") { why ??= `PR #${n}'s review is blocking (Critical or High findings): fix them first`; continue; }
@@ -288,7 +320,13 @@ export async function policyMerges(prs: number[], policy: Autonomy, cwd: string,
     const r = await risk(cwd, { pr: n }, verdict as "ok" | "fix", left);
     if (typeof r === "string") { why ??= r; continue; }
     if (!r.auto) { why ??= `PR #${n} is ${r.level} risk (${r.reasons[0]}): it needs the user's approval, with evidence`; continue; }
-    if (r.ci !== "green" || r.draft) { why ??= `PR #${n} is ${r.draft ? "a draft" : `not green (CI ${r.ci})`}`; continue; }
+    if (r.draft) { why ??= `PR #${n} is a draft`; continue; }
+    if (m.auto) {
+      // GitHub merges later, so pin it to the head this check saw and make sure the base makes it wait for CI.
+      if (!m.head || m.head.length < 7 || !r.head?.startsWith(m.head)) { why ??= `PR #${n}: auto-merge must be pinned to the head that was checked (--match-head-commit ${r.head ?? "<head>"})`; continue; }
+      if (r.ci === "red") { why ??= `PR #${n} is not green (CI red)`; continue; }
+      if (r.ci !== "green" && r.mergeState !== "BLOCKED") { why ??= `PR #${n}: CI is ${r.ci} and the base requires no pending check, so auto-merge wouldn't wait for it`; continue; }
+    } else if (r.ci !== "green") { why ??= `PR #${n} is not green (CI ${r.ci})`; continue; }
     covered.add(n);
   }
   return { covered, why };
@@ -297,11 +335,29 @@ export async function policyMerges(prs: number[], policy: Autonomy, cwd: string,
 const ROUTINE = [
   /^set\s+[-+][euxo]+(?:\s+pipefail)?$/,
   /^git\s+(?:-C\s+\S+\s+)?(?:add|commit|status|log|diff|show|fetch|rev-parse|rev-list|ls-files|describe|merge-base)\b/,
+  /^git\s+(?:-C\s+\S+\s+)?worktree\s+(?:list|prune)\b/,
   /^gh\s+(?:pr\s+(?:view|list|checks|status|diff)|run\s+(?:list|view|watch))\b/,
   /^(?:echo|printf|grep|head|tail|wc|sleep|true)\b/,
 ];
 // Options that make a routine command run another program or write a file.
-const DANGER = /(?:^|\s)--(?:upload-pack|receive-pack|exec|output|ext-diff|post-renderer|enable-alpha-plugins|enable-exec)\b|^git\s+(?:-C\s+\S+\s+)?-c\s|^gh\b.*\s(?:-R|--repo)\b/;
+const DANGER = /(?:^|\s)--(?:upload-pack|receive-pack|exec|output|ext-diff|post-renderer|enable-alpha-plugins|enable-exec)\b/;
+// `git -c key=value`: approved only when every override is one `gitGlobalsOk` allows (plainGit then drops them).
+const GIT_C = /^git\s+(?:-C\s+\S+\s+)?-c\s/;
+
+/**
+ * A git segment with its safe global options dropped (`git -c credential.helper= -c credential.helper='!gh auth
+ * git-credential' push …` → `git push …`), so the routine checks read the subcommand; unchanged otherwise.
+ */
+export function plainGit(seg: string): string {
+  const w = shellWords(seg);
+  if (w[0] !== "git") return seg;
+  let i = 1;
+  const globals: string[] = [];
+  while (i < w.length && w[i].startsWith("-")) { globals.push(w[i]); if (/^-[Cc]$/.test(w[i])) globals.push(w[++i] ?? ""); i++; }
+  if (!globals.includes("-c") || !gitGlobalsOk(globals)) return seg;
+  const dashC = globals.indexOf("-C");
+  return ["git", ...(dashC >= 0 ? ["-C", globals[dashC + 1]] : []), ...w.slice(i).map((x) => (/^[\w@%+=:,./-]+$/.test(x) ? x : `'${x.replace(/'/g, "'\\''")}'`))].join(" ");
+}
 const KUBE_READ = new RegExp(String.raw`^(?:kubectl${FLAGS}\s+(?:get|describe|logs|wait|top|rollout\s+(?:status|history))|helm${FLAGS}\s+(?:list|status|get|history))\b`);
 
 /**
@@ -330,27 +386,37 @@ export function routineText(cmd: string): string | null {
 export function routineOnly(cmd: string, policy: Autonomy, kubeContext: () => string | null = () => null, cwd = process.cwd()): boolean {
   const text = routineText(cmd);
   if (text === null) return false;
-  const real = (p: string) => { try { return realpathSync(p); } catch { return p; } }; // macOS: /var is /private/var
+  const real = realPath; // macOS: /var is /private/var
   const root = real(run(["git", "rev-parse", "--show-toplevel"], cwd) ?? resolve(cwd));
   const inside = (p: string | null) => { if (!p) return false; const r = real(p); return r === root || r.startsWith(root + "/"); };
   let here = resolve(cwd);
-  for (const seg of segments(text)) {
-    if (/\$\(|`|[<>]\(/.test(blankQuotes(seg, true))) return false;
+  let origin: string | null | undefined;
+  const ours = (r: string) => sameRepo(r, origin === undefined ? (origin = remotesOf(cwd).origin) : origin);
+  for (const raw of segments(text)) {
+    if (/\$\(|`|[<>]\(/.test(blankQuotes(raw, true))) return false;
+    // Safety checks read the command as written; `plain` (safe `git -c` pairs dropped) only names the subcommand.
+    const seg = unwrapTimeout(raw);
+    const plain = plainGit(seg);
     const bare = blankQuotes(seg);
-    if (/(?<![&>|])&(?![&>])/.test(bare) || DANGER.test(bare)) return false;
+    if (/(?<![&>|])&(?![&>])/.test(bare) || DANGER.test(bare) || (plain === seg && GIT_C.test(bare))) return false;
     for (const m of bare.matchAll(/>>?\s*([^\s&]\S*)/g)) if (m[1] !== "/dev/null") return false;
+    // `gh … --repo owner/repo` is routine only for this repository.
+    if (/^gh\b/.test(seg)) { const w = shellWords(seg), i = w.findIndex((x) => /^(?:-R|--repo)(?:=|$)/.test(x)); if (i >= 0 && !ours(w[i].includes("=") ? w[i].split("=")[1] : w[i + 1] ?? "")) return false; }
     const cd = /^cd\s+(?:"([^"]+)"|'([^']+)'|(\S+))\s*$/.exec(seg);
     if (cd) { const to = pathFrom(here, cd[1] ?? cd[2] ?? cd[3]); if (!to || !inside(to)) return false; here = to; continue; }
-    const dashC = /^git\s+-C\s+(\S+)/.exec(seg)?.[1];
+    const dashC = /^git\s+-C\s+(\S+)/.exec(plain)?.[1];
     if (dashC && !inside(pathFrom(here, dashC))) return false;
+    // `git worktree remove <path>` without --force keeps a dirty worktree; only worktrees inside the repository.
+    const wr = /^git\s+(?:-C\s+\S+\s+)?worktree\s+remove\s+("[^"]+"|'[^']+'|[^\s-]\S*)\s*$/.exec(plain);
+    if (wr) { if (!inside(pathFrom(here, wr[1]))) return false; continue; }
     if (/^(?:kubectl|helm)\b/.test(seg)) {
       if (!isLocal(seg, policy, kubeContext) || !(classifyCommand(seg).irreversible || KUBE_READ.test(seg))) return false;
       continue;
     }
     // Outward steps must be the plain command: `GIT_SSH_COMMAND=… git push` or a wrapper runs other code.
-    if (classifyCommand(seg).irreversible) { if (!/^(?:git\s+(?:-C\s+\S+\s+)?push|gh\s+(?:pr\s+merge|workflow\s+run))\s/.test(seg)) return false; continue; }
+    if (classifyCommand(seg).irreversible) { if (!/^(?:git\s+(?:-C\s+\S+\s+)?push|gh\s+(?:pr\s+merge|workflow\s+run))\s/.test(plain)) return false; continue; }
     if (/^gh\s+pr\s+create\b/.test(seg)) { if (!policy.openPr) return false; continue; }
-    if (!ROUTINE.some((re) => re.test(seg))) return false;
+    if (!ROUTINE.some((re) => re.test(plain))) return false;
   }
   return true;
 }
@@ -382,12 +448,14 @@ export async function main(): Promise<number> {
   const policy = parseAutonomy(loadConfig(cwd));
   let ctx: string | null | undefined;
   const kube = () => (ctx === undefined ? (ctx = run(["kubectl", "config", "current-context"], cwd)) : ctx);
-  const merging = segments(withoutHeredocs(cmd)).filter((s) => classifyCommand(s).irreversible === "gh pr merge").map(mergedPr);
-  const prs = merging.filter((m): m is { n: number; repo: string | null } => m !== null).map((m) => m.n);
+  const segs = segments(withoutHeredocs(cmd));
+  const vars = literalVars(segs);
+  const merging = segs.filter((s) => classifyCommand(s).irreversible === "gh pr merge").map((s) => mergedPr(expandVars(unwrapTimeout(compoundBody(s)), vars))).filter((m): m is MergeCmd => m !== null);
+  const prs = merging.map((m) => m.n);
   const transcript = prs.length && input.transcript_path && existsSync(input.transcript_path) ? readFileSync(input.transcript_path, "utf8") : "";
   const userGo = transcript ? approvedMerges(lastUserPrompt(transcript)) : new Set<number>();
   const byPolicy = policy && prs.some((n) => !userGo.has(n))
-    ? await policyMerges(prs.filter((n) => !userGo.has(n)), policy, cwd, toolUses(transcript)) : { covered: new Set<number>(), why: null };
+    ? await policyMerges(merging.filter((m) => !userGo.has(m.n)), policy, cwd, toolUses(transcript)) : { covered: new Set<number>(), why: null };
   const label = outsidePolicy(cmd, policy ?? parseAutonomy({ autonomy: {} })!, cwd, kube, new Set([...userGo, ...byPolicy.covered]));
   if (label) {
     console.log(decide("ask", `${label}${label === "gh pr merge" && byPolicy.why ? ` (${byPolicy.why})` : ""} is outward-facing or hard to undo; it needs the user's explicit go (delivery approval rules).`));
