@@ -1,0 +1,8 @@
+{
+  "name": "sre",
+  "version": "1.0.0",
+  "description": "Incident response and root-cause analysis: coordinate an active incident by phase, live status reports, blameless postmortems, evidence-led RCA (log and capture helpers need bun), and technical emails drafted from incident or RCA material.",
+  "author": {
+    "name": "gabs"
+  }
+}

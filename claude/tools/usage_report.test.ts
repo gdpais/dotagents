@@ -24,8 +24,8 @@ beforeEach(() => {
   root = join(tmp, "claude");
   projects = join(tmp, "projects");
   put(root, "README.md", "| Skill | Workflow | Use |\n|---|---|---|\n| tech-email | incident-response | Email |\n| defect-first-review | code-review | Review |\n");
-  for (const s of ["tech-email", "defect-first-review"]) put(root, `skills/${s}/SKILL.md`, "x");
-  for (const s of ["delivery-lifecycle", "performance-review"]) put(root, `plugins/delivery/skills/${s}/SKILL.md`, "x");
+  put(root, "skills/tech-email/SKILL.md", "x");
+  for (const s of ["delivery-lifecycle", "performance-review", "defect-first-review"]) put(root, `plugins/delivery/skills/${s}/SKILL.md`, "x");
   for (const w of ["code-review", "delivery", "incident-response"]) put(root, `workflows/${w}/SUMMARY.md`, "x");
 
   const cwd = "/Users/me/code/app/.claude/worktrees/feature-x";
@@ -71,13 +71,18 @@ afterEach(() => rmSync(tmp, { recursive: true, force: true }));
 test("the catalog comes from the repo's skills, plugins, README table and workflows", () => {
   const cat = loadCatalog(root);
   expect(Object.fromEntries(cat.custom)).toEqual({
-    "tech-email": ["incident-response", "Custom skill"], "defect-first-review": ["code-review", "Custom skill"],
+    "tech-email": ["incident-response", "Custom skill"], "defect-first-review": ["code-review", "Delivery plugin"],
     "delivery-lifecycle": ["delivery", "Delivery plugin"], "performance-review": ["delivery", "Delivery plugin"],
   });
   expect(cat.workflows).toEqual(["delivery", "code-review", "incident-response"]);
   expect(canon("delivery:delivery-lifecycle", cat)).toBe("delivery-lifecycle");
   expect(canon("/anthropic-skills:tech-email", cat)).toBe("tech-email");
   expect(canon("engineering:code-review", cat)).toBe("engineering:code-review");
+});
+
+test("short plugin names are labelled in capitals", () => {
+  put(root, "plugins/sre/skills/rca-investigation/SKILL.md", "x");
+  expect(loadCatalog(root).custom.get("rca-investigation")).toEqual(["sre", "SRE plugin"]);
 });
 
 test("sessions are split into your own and automated runs, worktrees counted toward their repo", () => {
