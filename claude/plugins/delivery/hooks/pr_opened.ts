@@ -34,7 +34,7 @@ export function openedPrUrl(output: string, key: string | null): { n: number; ur
   const urls = [...output.matchAll(/https:\/\/([^/\s]+)\/([^/\s]+)\/([^/\s]+)\/pull\/(\d+)/g)];
   const m = urls.findLast((u) => !key || `${u[1]}/${u[2]}/${u[3]}`.toLowerCase() === key);
   if (!m) return null;
-  return { n: Number(m[4]), url: m[0], existed: /already exists/i.test(output) };
+  return { n: Number(m[4]), url: m[0], existed: /a pull request for branch "[^"\n]*" into branch "[^"\n]*" already exists/i.test(output) };
 }
 
 export async function main(): Promise<number> {

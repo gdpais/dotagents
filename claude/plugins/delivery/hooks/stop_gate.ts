@@ -31,7 +31,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { preflight, type Preflight, type Review } from "../skills/delivery-lifecycle/scripts/preflight";
 import { assistantEntries, asksToHold, globMatch, lastUserPrompt, loadConfig, parseAutonomy, realPath, reviewed, SHOW_REVIEW, skillUsed, toolUses, unshownReviews, type Autonomy, type ToolUse } from "./autonomy";
 import { repoKey } from "./bash_guard";
@@ -40,7 +40,7 @@ import { baseBranch } from "./session_context";
 export { asksToHold, lastUserPrompt, reviewed, skillUsed, toolUses };
 
 interface HookInput { session_id?: string; transcript_path?: string; cwd?: string; stop_hook_active?: boolean }
-interface State { qualityBlocks: number; reviewBlocks: string[]; shipNudged?: boolean; reviewNudged?: boolean; tablesShown?: string[] }
+interface State { qualityBlocks: number; reviewBlocks: string[]; shipNudged?: boolean; reviewNudged?: boolean; tablesShown?: string[]; remote?: Record<string, string | null> }
 type Any = any;
 
 const EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
@@ -93,9 +93,13 @@ export function touchedDirs(uses: ToolUse[], cwd: string): string[] {
     if (EDIT_TOOLS.has(u.name) && typeof f === "string") out.push(resolve(cwd, f));
     if (u.name !== "Bash") continue;
     const c = String(u.input.command ?? "");
-    const moves = [...c.matchAll(/(?:^|[;&|(\s])cd\s+("[^"]+"|'[^']+'|[^\s;&|)]+)/g), ...c.matchAll(/\bgit\s+-C\s+("[^"]+"|'[^']+'|\S+)/g)];
+    const moves = [...c.matchAll(/(?:^|[;&|(\s])(?:cd|pushd)\s+("[^"]+"|'[^']+'|[^\s;&|)]+)/g), ...c.matchAll(/\bgit\s+-C\s+("[^"]+"|'[^']+'|\S+)/g)];
     for (const m of moves) if (!/[$`~]/.test(m[1])) out.push(resolve(cwd, unq(m[1])));
-    if (!moves.length && sessionEdited([u])) out.push(cwd);
+    // Files written by absolute path (`cat > /abs/worktree/f`, `tee /abs/f`) belong where they are, not to this directory.
+    const abs = [...c.matchAll(/(?:>>?|\btee(?:\s+-a)?)\s*("\/[^"]+"|'\/[^']+'|\/[^\s;&|)]+)/g)].map((m) => dirname(unq(m[1])));
+    out.push(...abs.filter((d) => d !== "/dev"));
+    const here = /\bsed\s+-i\b|\bgit\b[^|;&]*\bcommit\b|\bpatch\b\s+-p|(?:^|[^0-9&])>>?\s*(?![\/&])[\w.-][\w.\/-]*\.\w+|\btee\s+(?:-a\s+)?(?!\/)[\w.]/.test(c);
+    if (!moves.length && (here || (!abs.length && sessionEdited([u])))) out.push(cwd);
   }
   return out;
 }
@@ -150,7 +154,7 @@ async function remoteHead(dir: string, branch: string): Promise<string | null | 
  * Why the policy says work should still be shipped, or null when there is nothing to ship. Looks at every
  * worktree, since work often happens in `.claude/worktrees/<branch>` while the session sits in the main checkout.
  */
-export async function unshipped(cwd: string, policy: Autonomy, uses: ToolUse[]): Promise<string | null> {
+export async function unshipped(cwd: string, policy: Autonomy, uses: ToolUse[], cache: Record<string, string | null> = {}, noTranscript = false): Promise<string | null> {
   if (!policy.push.length || !(await git(["remote"], cwd))) return null;
   const base = baseBranch(cwd, policy.base);
   const here = await git(["rev-parse", "--show-toplevel"], cwd);
@@ -159,7 +163,8 @@ export async function unshipped(cwd: string, policy: Autonomy, uses: ToolUse[]):
   const bash = uses.filter((u) => u.name === "Bash").map((u) => String(u.input.command ?? ""));
   const list = await worktrees(cwd);
   const trees = list.length ? list : [{ path: here ?? cwd, branch: await git(["rev-parse", "--abbrev-ref", "HEAD"], cwd) }];
-  const mine = owners(touchedDirs(uses, cwd), trees);
+  // Without a transcript there's no telling which worktrees are this session's: only its own checkout.
+  const mine = owners(noTranscript ? [cwd] : touchedDirs(uses, cwd), trees);
   for (const w of trees) {
     if (!w.branch || !mine.has(w.path)) continue;
     const where = w.path === here ? "" : ` (worktree ${w.path})`;
@@ -178,7 +183,9 @@ export async function unshipped(cwd: string, policy: Autonomy, uses: ToolUse[]):
     if (ahead === null || ahead > 0) {
       // A push to a URL (`git push https://… feature/x`) leaves the tracking ref missing or stale: ask the remote
       // before nudging, and keep the local answer only when the remote can't say.
-      const remote = await remoteHead(w.path, w.branch);
+      // The answer for this branch at this commit is cached for the session: each turn's end shouldn't wait on the network.
+      const key = `${w.branch}@${await git(["rev-parse", "HEAD"], w.path)}`;
+      const remote = key in cache ? cache[key] : (cache[key] = await remoteHead(w.path, w.branch));
       if (remote === "unknown") { if (ahead === null) continue; }
       else ahead = await count(remote ?? ((await git(["rev-parse", "--verify", "--quiet", `origin/${base}`], w.path)) ? `origin/${base}` : base));
     }
@@ -273,8 +280,9 @@ export async function main(): Promise<number> {
   try { state = JSON.parse(readFileSync(statePath, "utf8")); } catch { /* first stop */ }
   const saveState = () => { try { mkdirSync(stateDir, { recursive: true }); writeFileSync(statePath, JSON.stringify(state)); } catch { /* best effort */ } };
 
-  // A review whose tables no reply shows: once per review, edits or not (a clean review edits nothing).
-  const unshown = unshownReviews(entries).filter((k) => !(state.tablesShown ?? []).includes(k));
+  // A review whose tables no reply shows: once per review, edits or not (a clean review edits nothing). Not again
+  // in the continuation a Stop block started, so a state file that can't be written never blocks every stop.
+  const unshown = reviewsOn && !input.stop_hook_active ? unshownReviews(entries).filter((k) => !(state.tablesShown ?? []).includes(k)) : [];
   if (unshown.length) {
     state.tablesShown = [...(state.tablesShown ?? []), ...unshown];
     saveState();
@@ -293,7 +301,8 @@ export async function main(): Promise<number> {
     const notes = p.reviews.filter((r) => !reviews.includes(r) && !skillUsed(uses, r.skill)).map((r) => `${r.gate}: ${r.why} → consider ${r.skill} before merging`);
     const policy = parseAutonomy(config);
     const hold = asksToHold(lastUserPrompt(transcript));
-    const why = policy && p.ok && !state.shipNudged && !hold ? await unshipped(cwd, policy, uses) : null;
+    state.remote ??= {};
+    const why = policy && p.ok && !state.shipNudged && !hold ? await unshipped(cwd, policy, uses, state.remote, !haveTranscript) : null;
     // "session": the PR's review session reviews it after it opens, so nothing is reviewed before pushing.
     const reviewDue = !!policy?.review && p.ok && !hold && !state.reviewNudged && !reviewed(uses)
       && (p.changed.some((f) => !DOCS.test(f)) || await codeOnBranches(cwd, policy, uses));
@@ -313,6 +322,7 @@ export async function main(): Promise<number> {
       process.stderr.write((policy.review === "session" ? reviewSessionMessage() : reviewMessage(baseBranch(cwd, policy.base))) + forPr + "\n");
       return 2;
     }
+    if (Object.keys(state.remote ?? {}).length) save();
     if (notes.length) console.log(JSON.stringify({ systemMessage: `Delivery notes (not blocking): ${notes.join("; ")}` }));
     return 0;
   }

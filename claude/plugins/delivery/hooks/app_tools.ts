@@ -26,6 +26,20 @@ function ourPr(url: unknown, cwd: string): boolean {
   } catch { return false; }
 }
 
+/**
+ * True when a start_session call is a PR's review session as the policy describes it: titled "Code review: PR #<n>",
+ * briefed with that PR's URL on this repository, here (no other folder, host, repository, environment or cloud),
+ * and with no preset but the policy's own (a preset names its own folder or connection).
+ */
+export function reviewStart(args: Record<string, unknown>, preset: string | null, cwd: string): boolean {
+  const n = /^Code review: PR #(\d+)$/.exec(String(args.title ?? ""))?.[1];
+  if (!n) return false;
+  if (args.cwd || args.host || args.repository || args.environment || args.source_branch || (args.target && args.target !== "local")) return false;
+  if (args.preset !== undefined && args.preset !== preset) return false;
+  const urls = [...String(args.prompt ?? "").matchAll(/https:\/\/[^\s"')]+\/pull\/(\d+)/g)];
+  return urls.length > 0 && urls.every((u) => u[1] === n && ourPr(u[0], cwd));
+}
+
 export async function main(): Promise<number> {
   let input: { tool_name?: string; tool_input?: Record<string, unknown>; cwd?: string };
   try { input = JSON.parse(await Bun.stdin.text()); } catch { return 0; }
@@ -39,7 +53,7 @@ export async function main(): Promise<number> {
     console.log(allow("autonomy.openPr in .claude/delivery.json: reading the PR's status is part of opening it."));
   else if (/__bind_pr$/.test(tool) && policy.openPr && ourPr(args.url, cwd))
     console.log(allow("autonomy.openPr in .claude/delivery.json: binding this repository's PR to the session that opened it."));
-  else if (/__start_session$/.test(tool) && policy.review === "session" && /^Code review: PR #\d+$/.test(String(args.title ?? "")) && !args.cwd && !args.host && !args.repository && args.target !== "cloud")
+  else if (/__start_session$/.test(tool) && policy.review === "session" && reviewStart(args, policy.reviewPreset, cwd))
     console.log(allow("autonomy.review \"session\" in .claude/delivery.json: the user asked for a review session per pull request."));
   return 0;
 }

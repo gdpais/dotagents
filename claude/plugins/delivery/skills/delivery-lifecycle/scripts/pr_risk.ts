@@ -26,8 +26,8 @@
  *   evidence) or "green"; breaking always waits for the user's review and approval, with evidence. Without
  *   the key, every merge asks. A `blocking` review means fix first, whatever the level. A PR the script
  *   couldn't read whole (over 100 files, or no diff) needs the user too.
- * Next: the step the route leads to now: merge (CI green), auto-merge pinned to the head (CI running and the
- *   base requires checks, so GitHub waits for them), wait for CI, fix CI, fix the findings, or ask the user.
+ * Next: the step the route leads to now: merge pinned to the head (CI green), wait for CI in the background and
+ *   rate again (CI running), fix CI, fix the findings, or ask the user.
  * Read-only. Exit 0; 2 on errors (no gh, unknown PR, not a repository).
  */
 import { parseArgs } from "node:util";
@@ -50,8 +50,6 @@ export interface Risk {
   /** why the script couldn't read the whole PR, when it couldn't */
   incomplete: string | null;
   evidence: string[];
-  /** GitHub's mergeStateStatus (BLOCKED while required checks or reviews are pending), when read from a PR */
-  mergeState?: string | null;
   /** the review verdict the rating used */
   review?: Verdict | null;
   /** the step the route leads to now (see nextStep) */
@@ -167,9 +165,9 @@ export async function prRisk(cwd: string, target: { pr?: number; base?: string }
   const config = loadConfig(cwd);
   const merge = parseAutonomy(config)?.merge ?? null;
   const extra = Array.isArray(config.evidence) ? config.evidence.filter((s: unknown): s is string => typeof s === "string") : [];
-  let c: Classification, files: FileChange[], messages: string[], ci: Ci = "none", head: string | null = null, draft = false, incomplete: string | null = null, mergeState: string | null = null;
+  let c: Classification, files: FileChange[], messages: string[], ci: Ci = "none", head: string | null = null, draft = false, incomplete: string | null = null;
   if (target.pr !== undefined) {
-    const raw = run(["gh", "pr", "view", String(target.pr), "--json", "title,headRefOid,isDraft,files,changedFiles,commits,statusCheckRollup,mergeStateStatus"], cwd, left());
+    const raw = run(["gh", "pr", "view", String(target.pr), "--json", "title,headRefOid,isDraft,files,changedFiles,commits,statusCheckRollup"], cwd, left());
     if (!raw) return `gh pr view ${target.pr} failed (is gh installed and signed in, and does the PR exist?)`;
     const v = JSON.parse(raw);
     const map = new Map<string, FileChange>((v.files ?? []).map((f: { path: string; additions: number; deletions: number }) =>
@@ -184,7 +182,6 @@ export async function prRisk(cwd: string, target: { pr?: number; base?: string }
     ci = ciState(v.statusCheckRollup);
     head = v.headRefOid ?? null;
     draft = !!v.isDraft;
-    mergeState = typeof v.mergeStateStatus === "string" ? v.mergeStateStatus : null;
   } else {
     const r = await classifyRepo(cwd, { base: target.base ?? "main" });
     if (typeof r === "string") return r;
@@ -199,7 +196,7 @@ export async function prRisk(cwd: string, target: { pr?: number; base?: string }
   const level: Level = incomplete && assessed.level === "low" ? "medium" : assessed.level;
   const reasons = incomplete ? [`incomplete: ${incomplete}`, ...assessed.reasons.filter((x) => !x.startsWith("no risk signal"))] : assessed.reasons;
   const route = incomplete ? { route: "needs your approval" as const, auto: false } : routeFor(level, merge, review);
-  const risk: Risk = { level, reasons, ...route, ci, pr: target.pr ?? null, head, draft, incomplete, evidence: evidenceFor(c.changed, level, extra), mergeState, review: review ?? null };
+  const risk: Risk = { level, reasons, ...route, ci, pr: target.pr ?? null, head, draft, incomplete, evidence: evidenceFor(c.changed, level, extra), review: review ?? null };
   return { ...risk, next: nextStep(risk, parseAutonomy(config)?.merge.method ?? "merge") };
 }
 
@@ -216,19 +213,17 @@ export function nextStep(r: Risk, method = "merge"): string {
   if (r.ci === "red") return "CI is red: fix it on the branch (or tell the session that owns it), then rate it again";
   if (r.ci === "none") return "no CI checks reported: ask the user, with the evidence";
   if (r.ci === "green") return `${decide}merge: \`gh pr merge ${n} --${method} --match-head-commit ${head}\`${fallback}`;
-  return r.mergeState === "BLOCKED"
-    ? `${decide}set auto-merge on this head (GitHub merges it once the required checks pass): \`gh pr merge ${n} --auto --${method} --match-head-commit ${head}\`${fallback}`
-    : `CI is still running and the base requires no check, so auto-merge wouldn't wait: wait for it (\`gh pr checks ${n} --watch\` in the background), then rate it again${fallback}`;
+  return `CI is still running: wait for it with \`gh pr checks ${n} --watch --fail-fast\` in the background (you're called back when it ends), then rate it again${fallback}`;
 }
 
 /** The Decision block for the reply, under the review's tables. */
 export function renderMd(r: Risk): string {
   const cell = (s: string) => s.replace(/\|/g, "\\|");
   const lines = [
-    "### Decision",
+    `### Decision (${r.pr !== null ? `PR #${r.pr}` : "branch"}${r.head ? `, head ${r.head.slice(0, 7)}` : ""})`,
     "| PR | Risk | Review | CI | Route |",
     "|---|---|---|---|---|",
-    `| ${r.pr !== null ? `#${r.pr}` : "branch"}${r.head ? ` (${r.head.slice(0, 7)})` : ""} | ${r.level} | ${r.review ?? "not given"} | ${r.ci}${r.draft ? ", draft" : ""} | ${cell(r.route)} |`,
+    `| ${r.pr !== null ? `#${r.pr}` : "branch"} | ${r.level} | ${r.review ?? "not given"} | ${r.ci}${r.draft ? ", draft" : ""} | ${cell(r.route)} |`,
     "",
     `**Why:** ${r.reasons.map(cell).join("; ")}`,
     "",

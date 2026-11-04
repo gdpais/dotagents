@@ -16,8 +16,8 @@
  *     "reviewPreset": "Heartbeat"   // optional desktop-app preset for review sessions
  *   }
  *
- * Merging, tags, releases, publishing, deploys, pushes to the base branch and force pushes always
- * ask: they are not part of the policy. A merge the user's own last message asked for (by PR number)
+ * Merging beyond the risk rules, tags, releases, publishing, deploys, pushes to the base branch and force
+ * pushes always ask: they are not part of the policy. A merge the user's own last message asked for (by PR number)
  * isn't asked again. No `autonomy` key = v2 behaviour (ask before every push).
  */
 import { existsSync, readFileSync, realpathSync } from "node:fs";
@@ -190,24 +190,54 @@ export function riskRun(cmd: string, n?: number): { pr: number; review: string |
   return null;
 }
 
+/** What each tool call returned, by tool-call id: the text a command printed. */
+export function toolOutputs(transcript: string): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const line of transcript.split("\n")) {
+    if (!line.includes("tool_result")) continue;
+    try {
+      const e = JSON.parse(line);
+      if (e?.type !== "user" || !Array.isArray(e.message?.content)) continue;
+      for (const c of e.message.content) {
+        if (c?.type !== "tool_result" || !c.tool_use_id) continue;
+        out.set(c.tool_use_id, typeof c.content === "string" ? c.content : Array.isArray(c.content) ? c.content.map((x: Any) => x?.text ?? "").join("\n") : "");
+      }
+    } catch { /* partial line */ }
+  }
+  return out;
+}
+
+/** The head commit a pr_risk.ts run reported (text, `--format md` or `--json`), or null when its output doesn't show it. */
+export function ratedHead(output: string | undefined): string | null {
+  const m = /\(head ([0-9a-f]{7,40})\)|^### Decision \(PR #\d+, head ([0-9a-f]{7,40})\)|"head":\s*"([0-9a-f]{7,40})"/m.exec(output ?? "");
+  return m ? (m[1] ?? m[2] ?? m[3]) : null;
+}
+
 /**
- * The review verdict the session recorded for PR `n` when it reviewed and then assessed it with pr_risk.ts, or
- * null. A review counts for the next PR assessed after it, so in a session with several PRs each review covers one
- * PR; once it does, later assessments of that PR keep it (re-rating after the fixes land or CI finishes), and the
- * latest assessment's verdict wins.
+ * The review verdict and head the session recorded for PR `n`: it reviewed with engineering:code-review, then rated
+ * the PR with pr_risk.ts. A review covers the head that the next rating after it reports, so new commits (a CI fix,
+ * a merge of the base) need a review of their own before a rating counts; with several PRs each review covers the
+ * one PR rated next. The latest rating wins: its verdict if its head is covered, else null. Without `outputs` (a
+ * transcript's tool results) heads aren't compared and head is "*".
  */
-export function assessedPr(uses: ToolUse[], n: number): string | null {
-  let pending = false, verdict: string | null = null;
-  const covered = new Set<number>();
+export function assessment(uses: ToolUse[], n: number, outputs?: Map<string, string>): { verdict: string | null; head: string | null; reviewed: boolean } {
+  let pending = false, result: { verdict: string | null; head: string | null } = { verdict: null, head: null };
+  const covered = new Map<number, Set<string>>();
   for (const u of uses) {
     if (isReview(u)) { pending = true; continue; }
     const r = u.name === "Bash" ? riskRun(String(u.input.command ?? "")) : null;
     if (!r) continue;
-    if (pending) covered.add(r.pr);
+    const head = outputs ? ratedHead(u.id ? outputs.get(u.id) : undefined) : "*";
+    if (pending && head) covered.set(r.pr, (covered.get(r.pr) ?? new Set()).add(head));
     pending = false;
-    if (r.pr === n) verdict = covered.has(n) && r.review ? r.review : null;
+    if (r.pr === n) result = { verdict: head && covered.get(n)?.has(head) && r.review ? r.review : null, head };
   }
-  return verdict;
+  return { ...result, reviewed: covered.has(n) };
+}
+
+/** The verdict of `assessment` (see there). */
+export function assessedPr(uses: ToolUse[], n: number, outputs?: Map<string, string>): string | null {
+  return assessment(uses, n, outputs).verdict;
 }
 
 /**
@@ -283,7 +313,12 @@ const BASES = new Set(["main", "master", "trunk", "develop"]);
  * commands; `2>&1` and `&>file` are redirects, not separators.
  */
 export function segments(cmd: string): string[] {
-  const out: string[] = [];
+  return segmentsWithOps(cmd).map((s) => s.text);
+}
+
+/** `segments`, each with the operator that ends it (`;`, newline, `&&`, `||`, `|`, `&`, or "" at the end). */
+export function segmentsWithOps(cmd: string): { text: string; op: string }[] {
+  const out: { text: string; op: string }[] = [];
   let cur = "", q: string | null = null;
   for (let i = 0; i < cmd.length; i++) {
     const ch = cmd[i];
@@ -292,14 +327,15 @@ export function segments(cmd: string): string[] {
     if (ch === "'" || ch === '"') { q = ch; cur += ch; continue; }
     const redirect = ch === "&" && (cmd[i - 1] === ">" || cmd[i + 1] === ">");
     if (ch === ";" || ch === "\n" || ch === "|" || (ch === "&" && !redirect)) {
-      out.push(cur); cur = "";
-      if ((ch === "&" || ch === "|") && cmd[i + 1] === ch) i++;
+      let op: string = ch;
+      if ((ch === "&" || ch === "|") && cmd[i + 1] === ch) { op = ch + ch; i++; }
+      out.push({ text: cur, op }); cur = "";
       continue;
     }
     cur += ch;
   }
-  out.push(cur);
-  return out.map((s) => s.trim()).filter(Boolean);
+  out.push({ text: cur, op: "" });
+  return out.map((s) => ({ text: s.text.trim(), op: s.op })).filter((s) => s.text);
 }
 
 /**
@@ -341,47 +377,109 @@ export function unwrapTimeout(seg: string): string {
   return m ? m[1] : seg;
 }
 
+const LITERAL = /^([A-Za-z_]\w*)=(?:"([^"$`\\]*)"|'([^']*)'|([^\s"'$`\\;&|<>()]*))$/;
+
 /**
- * Variables the command line sets to a literal and can't change otherwise (`B=feature/x; git push -u origin "$B"`),
- * for reading outward commands. A name that is assigned twice, assigned something else, or appears bare anywhere
- * else (`read B`, `for B in …`, `export B`) stays unexpanded, and `source`, `.` or `eval` drop them all.
+ * For each segment of a command line, the variables earlier segments set to a literal, the way the shell will see
+ * them there (`B=feature/x; git push -u origin "$B"`), for reading outward commands. Only an assignment that runs
+ * unconditionally in this shell counts (not after `&&`/`||`, not in a pipeline or in the background), and only for
+ * the segments after it. A name assigned twice, or appearing bare anywhere else (`read B`, `for B in …`, `export B`),
+ * a value with glob characters, and every variable on a line that sets `IFS` or runs `source`, `.` or `eval` stay
+ * unexpanded.
  */
-export function literalVars(segs: string[]): Map<string, string> {
-  const vals = new Map<string, string | null>();
-  const literal = /^([A-Za-z_]\w*)=(?:"([^"$`\\]*)"|'([^']*)'|([^\s"'$`\\;&|<>()]*))$/;
-  for (const s of segs) {
-    const m = literal.exec(s);
-    if (m) vals.set(m[1], vals.has(m[1]) ? null : (m[2] ?? m[3] ?? m[4] ?? ""));
-  }
-  if (segs.some((s) => /^(?:source|\.|eval)(?:\s|$)/.test(s))) return new Map();
-  const out = new Map<string, string>();
-  for (const [name, v] of vals) {
+export function lineVars(cmd: string): { segs: string[]; at: Map<string, string>[] } {
+  const parts = segmentsWithOps(cmd);
+  const segs = parts.map((p) => p.text);
+  const none = { segs, at: segs.map(() => new Map<string, string>()) };
+  if (segs.some((s) => /^(?:source|\.|eval)(?:\s|$)/.test(s) || /(?:^|[^\w$])IFS\b/.test(s))) return none;
+  const count = new Map<string, number>();
+  for (const s of segs) { const m = LITERAL.exec(s); if (m) count.set(m[1], (count.get(m[1]) ?? 0) + 1); }
+  const poisoned = new Set<string>();
+  for (const [name] of count) {
     const bare = new RegExp(`(?:^|[^$\\w{])${name}(?!\\w)`);
-    if (v !== null && !segs.some((s) => !literal.test(s) && bare.test(s))) out.set(name, v);
+    if (count.get(name)! > 1 || segs.some((s) => !LITERAL.test(s) && bare.test(s))) poisoned.add(name);
   }
-  return out;
+  const at: Map<string, string>[] = [];
+  let known = new Map<string, string>();
+  parts.forEach((p, i) => {
+    at.push(known);
+    const m = LITERAL.exec(p.text);
+    if (!m || poisoned.has(m[1])) return;
+    const before = i ? parts[i - 1].op : "";
+    const value = m[2] ?? m[3] ?? m[4] ?? "";
+    if (!["", ";", "\n", "&"].includes(before) || !["", ";", "\n", "&&", "||"].includes(p.op) || /[*?[]/.test(value)) { poisoned.add(m[1]); return; }
+    known = new Map(known).set(m[1], value);
+  });
+  return { segs, at };
 }
 
-/** `$NAME` and `${NAME}` replaced by the literal values `literalVars` found; anything else is left as written. */
+/** `$NAME` and `${NAME}` replaced by the literal values `lineVars` found; anything else is left as written. */
 export function expandVars(seg: string, vars: Map<string, string>): string {
   if (!vars.size) return seg;
   return seg.replace(/\$\{(\w+)\}|\$([A-Za-z_]\w*)/g, (all, a, b) => vars.get(a ?? b) ?? all);
 }
 
-// `-c` overrides a covered push may carry: GitHub CLI as the credential helper (with no SSH key loaded, Heartbeat
-// sessions push over HTTPS with `-c credential.helper= -c credential.helper='!gh auth git-credential'`: 28 asks,
-// 3–4 Nov), the empty value that clears other helpers, and the commit identity. Any other key could run a program.
-const SAFE_CONFIG = /^(?:credential(?:\.https:\/\/github\.com)?\.helper=(?:!(?:\/[\w.\/-]*\/)?gh auth git-credential)?|user\.(?:name|email)=[^\n]*)$/;
+/**
+ * `-c` overrides a covered push may carry: GitHub CLI as the credential helper (with no SSH key loaded, Heartbeat
+ * sessions push over HTTPS with `-c credential.helper= -c credential.helper='!gh auth git-credential'`: 28 asks,
+ * 3–4 Nov), the empty value that clears other helpers, and the commit identity. The helper is `gh` from PATH or
+ * the exact file `gh` resolves to; any other program, and any other key, could run code.
+ */
+export function safeConfig(kv: string): boolean {
+  if (/^user\.(?:name|email)=[^\n]*$/.test(kv)) return true;
+  const m = /^credential(?:\.https:\/\/github\.com)?\.helper=(.*)$/s.exec(kv);
+  if (!m) return false;
+  if (m[1] === "") return true;
+  const h = /^!(\S+) auth git-credential$/.exec(m[1]);
+  if (!h) return false;
+  if (h[1] === "gh") return true;
+  const gh = Bun.which("gh");
+  return !!gh && h[1].startsWith("/") && realPath(h[1]) === realPath(gh);
+}
 
-/** The git global options before the subcommand that a covered command may use, with their values. */
+/** The git global options before the subcommand that a covered command may use: one `-C`, safe `-c` pairs. */
 export function gitGlobalsOk(globals: string[]): boolean {
+  let dirs = 0;
   for (let i = 0; i < globals.length; i++) {
     const g = globals[i];
-    if (g === "-C") { i++; continue; }
-    if (g === "-c") { if (!SAFE_CONFIG.test(globals[++i] ?? "")) return false; continue; }
+    if (g === "-C") { if (++dirs > 1) return false; i++; continue; }
+    if (g === "-c") { if (!safeConfig(globals[++i] ?? "")) return false; continue; }
     if (!/^(?:--no-pager|-P|--no-optional-locks)$/.test(g)) return false;
   }
   return true;
+}
+
+/** The directory a `git -C <dir> …` segment runs in (its one `-C`), or null. */
+export function gitDir(seg: string): string | null {
+  const w = shellWords(seg);
+  if (w[0] !== "git") return null;
+  for (let i = 1; i < w.length && w[i].startsWith("-"); i++) {
+    if (w[i] === "-C") return w[i + 1] ?? null;
+    if (w[i] === "-c") i++;
+  }
+  return null;
+}
+
+/** The text of `s` outside quotes, so expansion characters inside quoted strings don't count. */
+function unquoted(s: string): string {
+  let out = "", q: string | null = null;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (q) { if (ch === q) q = null; else if (q === '"' && ch === "\\") i++; continue; }
+    if (ch === "\\") { i++; continue; }
+    if (ch === "'" || ch === '"') { q = ch; if (s[i - 1] === "$") out += ch; continue; }
+    out += ch;
+  }
+  return out;
+}
+
+/**
+ * True when the shell would turn the segment's words into something the guard doesn't model: ANSI-C or locale
+ * quoting (`feature/x$'\x3a'master` is `feature/x:master`), or a glob or brace expansion in an argument.
+ */
+export function expands(seg: string): boolean {
+  const u = unquoted(seg);
+  return /\$['"]/.test(u) || /[*?[]/.test(u) || /\{[^}]*(?:,|\.\.)[^}]*\}/.test(u);
 }
 
 /** Drop shell redirections (`2>&1`, `>out.log`, `2> /dev/null`, `&>log`): they aren't command arguments. */
@@ -402,6 +500,7 @@ export function withoutRedirects(ws: string[]): string[] {
  * A push the parser can't read (`bash -c "git push …"`, `(git push …)`) isn't covered either.
  */
 export function pushOutsidePolicy(segment: string, policy: Autonomy, current: string | null, ownRemote: (r: string) => boolean = () => true): string | null {
+  if (expands(segment)) return "a push the guard can't read (quoting or expansion it doesn't model)";
   const w = withoutRedirects(shellWords(unwrapTimeout(segment)));
   const at = w.findIndex((x, i) => x === "push" && w[0] === "git" && w.slice(1, i).every((y, j, a) => y.startsWith("-") || /^-[Cc]$/.test(a[j - 1] ?? "")));
   if (at < 0) return "a push the guard can't read";
@@ -450,7 +549,7 @@ export function mergeRules(p: Autonomy): string {
 
 /** How to merge on green without waiting in the session or asking: merge now, or let GitHub merge the reviewed head. */
 export function mergeOnGreen(p: Autonomy, n: number | string = "<n>"): string {
-  return `Merge on green: CI green → \`gh pr merge ${n} --${p.merge.method} --match-head-commit <head>\`; CI still running on a base that requires checks → the same with \`--auto\` (GitHub merges that head once the checks pass; the policy is the user's request for this auto-merge); CI red → fix it on the branch, or say whose it is. Never end a turn asking to merge once CI is green.`;
+  return `Merge on green: CI green → \`gh pr merge ${n} --${p.merge.method} --match-head-commit <head>\`; CI still running → wait for it with one \`gh pr checks ${n} --watch --fail-fast\` run in the background (you're called back when it ends; the policy is the user's request for this wait), then rate it again and merge; CI red → fix it on the branch, or say whose it is. If the head moved since your review, review the new commits with engineering:code-review first: the merge guard only covers a head a review saw. Never end a turn asking to merge once CI is green.`;
 }
 
 /**
@@ -468,8 +567,8 @@ export function reviewBrief(o: { n: number; url: string; base: string; policy: A
     merges
       ? `4. Do what its Next line says. ${mergeRules(p)} ${mergeOnGreen(p, n)}`
       : "4. Merging isn't in the policy: give the user the Decision block and the evidence, and stop.",
-    `5. Then remove the review worktree${p.cleanupMerged ? ` and, after a merge, run \`bun "${o.cleanupScript}" -C ${o.mainCheckout}\`` : ""}. Reply with the review tables, the Decision block and what you did (merged as <sha>, auto-merge set on <head>, blocked because…, or the ask with its evidence).`,
-    "If the PR gets new commits after your review (a CI fix, a conflict), review those, re-rate it and redo step 4.",
+    `5. Then remove the review worktree${p.cleanupMerged ? ` and, after a merge, run \`bun "${o.cleanupScript}" -C ${o.mainCheckout}\`` : ""}. Reply with the review tables, the Decision block and what you did (merged as <sha>, blocked because…, or the ask with its evidence).`,
+    "If the PR gets new commits after your review (a CI fix, a conflict, a merge of the base), review those commits with engineering:code-review (show its tables), rate it again and redo step 4.",
   ].join("\n");
 }
 
@@ -494,7 +593,7 @@ export function reviewSessionStart(o: Parameters<typeof reviewBrief>[0]): string
 export function policyContext(p: Autonomy, base: string, cleanupScript?: string, riskScript = "pr_risk.ts"): string {
   const lines = [
     "Delivery autonomy: the user approved this policy in .claude/delivery.json. It is standing authorization; don't ask again for these steps.",
-    "- It is the durable, explicit authorization that rules like \"commit or push only when the user asks\", \"offer Auto-fix\", \"ask before acting on what you found\" or \"never enable auto-merge unless the user asked\" wait for: for the steps below, the user has already asked. Never turn a covered step into a question, an end-of-turn button (wrap_up ask), a proposal card or \"want me to…?\": do it, then report what you did. A question at the end of a turn is only for the \"still stop\" list at the bottom.",
+    "- It is the durable, explicit authorization that rules like \"commit or push only when the user asks\", \"offer Auto-fix\", \"ask before acting on what you found\" or \"don't poll CI checks yourself\" wait for: for the steps below, the user has already asked. Never turn a covered step into a question, an end-of-turn button (wrap_up ask), a proposal card or \"want me to…?\": do it, then report what you did. A question at the end of a turn is only for the \"still stop\" list at the bottom.",
     `- Ship without stopping to offer it: when the checks pass, ${p.review === "self" ? `review the change with the \`engineering:code-review\` skill against ${base} (fix Critical and High findings first; list Medium and Low ones in the PR description), then ` : ""}commit (Conventional Commits), push branches matching ${p.push.join(", ")}${p.openPr ? `, and open the pull request against ${base} (follow CONTRIBUTING.md or the PR template)` : ""}, in the same turn. Work on a new feature branch, never directly on ${base}.`,
   ];
   if (p.review === "session") lines.push(`- Each PR gets its own review session: when \`gh pr create\` opens one, a delivery hook tells you how to start it (start_session, title "Code review: PR #<n>"). Don't review that PR in the session that opened it, and don't wait for its merge or ask the user about it: the review session owns it.`);
