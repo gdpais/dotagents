@@ -1,0 +1,9 @@
+{
+  "autonomy": {
+    "push": ["feature/*", "feat/*", "fix/*", "chore/*", "docs/*", "refactor/*", "test/*", "claude/*"],
+    "openPr": true,
+    "autoFix": true,
+    "cleanupMerged": true,
+    "merge": { "low": "green", "medium": "decide" }
+  }
+}
