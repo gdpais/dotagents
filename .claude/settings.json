@@ -1,0 +1,28 @@
+{
+  "enabledPlugins": {
+    "session-report@claude-plugins-official": true,
+    "project-artifact@claude-plugins-official": true,
+    "delivery@dotagents": true,
+    "replay-theater@dotagents": true,
+    "blast-radius@dotagents": true,
+    "token-weather@dotagents": true
+  },
+  "extraKnownMarketplaces": {
+    "dotagents": {
+      "source": {
+        "source": "github",
+        "repo": "gdpais/dotagents"
+      }
+    }
+  },
+  "outputStyle": "Concise",
+  "modelSettings": {
+    "claude-opus-5-5": {
+      "effortLevel": "high"
+    }
+  },
+  "theme": "dark",
+  "switchModelsOnFlag": false,
+  "remoteControlAtStartup": true,
+  "agentPushNotifEnabled": true
+}
