@@ -8,11 +8,11 @@
  * brief said "Do not merge", so every review session stopped and the merge came back to the user (4 Nov 2026).
  * Silent (no output) without that policy, for other repositories, for a PR that already existed, and when this
  * session already started the PR's review session. A session whose last engineering:code-review came after its last
- * commit (and after any earlier PR it opened) is told it owns the PR instead (no second review).
+ * file change (and after any earlier PR it opened) is told it owns the PR instead (no second review).
  */
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
-import { repoKey, withoutHeredocs } from "./bash_guard";
+import { executableText, repoKey, withoutHeredocs } from "./bash_guard";
 import { isReview, loadConfig, parseAutonomy, reviewedHere, reviewSessionStart, segments, toolUses, type ToolUse } from "./autonomy";
 import { baseBranch } from "./session_context";
 
@@ -38,22 +38,36 @@ export function openedPrUrl(output: string, key: string | null): { n: number; ur
   return { n: Number(m[4]), url: m[0], existed: /already exists/i.test(output) };
 }
 
-/** True when a segment of the command runs `git commit` (with `-C <dir>` or `-c <k=v>` options allowed). */
-export function commits(cmd: string): boolean {
-  return segments(withoutHeredocs(cmd)).some((s) => /^(?:[A-Za-z_]\w*=\S*\s+)*(?:timeout\s+\S+\s+)?git\s+(?:-[cC]\s+\S+\s+)*commit\b/.test(s));
+const EDITS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
+const READ_ONLY_AGENTS = new Set(["Explore", "Plan", "claude-code-guide"]);
+/** A command word that rewrites files: `sed -i` (any flag order), `perl -i`, `patch`, `mv`, `cp`, `rm`, or a git command that writes the tree. */
+const SHELL_EDIT = /^(?:[A-Za-z_]\w*=\S*\s+)*(?:timeout\s+\S+\s+)?(?:sed\s+(?:-\S+\s+|'[^']*'\s+)*(?:-i|--in-place)|perl\s+(?:-\S+\s+)*-\w*i|patch\b|mv\b|cp\b|rm\b|git\s+(?:-[cC]\s+\S+\s+)*(?:apply|am|cherry-pick|revert|restore|stash\s+(?:pop|apply)|checkout\b.*\s--(?:\s|$)))/;
+
+/**
+ * A tool call that changes files: an edit tool, a subagent that isn't a review or a read-only type (it may apply the
+ * fixes), or a shell command above, `tee`, a formatter's `--write`/`--fix`, or a redirect into a file. Quoted arguments and heredoc bodies are blanked
+ * first, so a commit message such as `-m "$(cat <<'EOF' … 3.3.1 -> 3.3.2 … EOF)"` isn't an edit.
+ */
+export function changesFiles(u: ToolUse): boolean {
+  if (EDITS.has(u.name)) return true;
+  if (u.name === "Agent" || u.name === "Task") return !isReview(u) && !READ_ONLY_AGENTS.has(String(u.input.subagent_type ?? ""));
+  if (u.name !== "Bash") return false;
+  const c = executableText(String(u.input.command ?? ""));
+  if (createsPr(c)) return false;
+  return /\btee\b|\s--(?:write|fix)\b|(^|[^0-9&])>\s*[\w./-]+\.\w+/.test(c) || segments(c).some((s) => SHELL_EDIT.test(s));
 }
 
 /**
- * True when the session's last engineering:code-review covers the PR just opened: it came after every commit the
- * session made and after any earlier `gh pr create` (that review belonged to the earlier PR). The opening call itself
- * may already be the last tool use; it is ignored. A review of other work, or one followed by new commits, doesn't
- * count, so those PRs still get their review session.
+ * True when the session's last engineering:code-review covers the PR just opened: no file changed after it and no
+ * earlier `gh pr create` followed it (that review belonged to the earlier PR). Commits don't count as changes: the
+ * ship order is review, commit, push, open the PR (3.3.1 counted commits, so that order still got a second review
+ * session). The opening call itself may already be the last tool use; it is ignored.
  */
 export function reviewedThisChange(uses: ToolUse[]): boolean {
   const bash = (u: ToolUse) => (u.name === "Bash" ? String(u.input.command ?? "") : "");
   const last = uses.length && createsPr(bash(uses[uses.length - 1])) ? uses.slice(0, -1) : uses;
   const review = last.findLastIndex(isReview);
-  return review >= 0 && !last.slice(review + 1).some((u) => commits(bash(u)) || createsPr(bash(u)));
+  return review >= 0 && !last.slice(review + 1).some((u) => changesFiles(u) || createsPr(bash(u)));
 }
 
 export async function main(): Promise<number> {
