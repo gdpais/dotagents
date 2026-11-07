@@ -12,7 +12,7 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
-import { repoKey, withoutHeredocs } from "./bash_guard";
+import { executableText, repoKey, withoutHeredocs } from "./bash_guard";
 import { isReview, loadConfig, parseAutonomy, reviewedHere, reviewSessionStart, segments, toolUses, type ToolUse } from "./autonomy";
 import { baseBranch } from "./session_context";
 
@@ -39,12 +39,22 @@ export function openedPrUrl(output: string, key: string | null): { n: number; ur
 }
 
 const EDITS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
+const READ_ONLY_AGENTS = new Set(["Explore", "Plan", "claude-code-guide"]);
+/** A command word that rewrites files: `sed -i` (any flag order), `perl -i`, `patch`, `mv`, `cp`, `rm`, or a git command that writes the tree. */
+const SHELL_EDIT = /^(?:[A-Za-z_]\w*=\S*\s+)*(?:timeout\s+\S+\s+)?(?:sed\s+(?:-\S+\s+|'[^']*'\s+)*(?:-i|--in-place)|perl\s+(?:-\S+\s+)*-\w*i|patch\b|mv\b|cp\b|rm\b|git\s+(?:-[cC]\s+\S+\s+)*(?:apply|am|cherry-pick|revert|restore|stash\s+(?:pop|apply)|checkout\b.*\s--(?:\s|$)))/;
 
-/** A tool call that changes files: an edit tool, or a shell `sed -i`, `patch`, `tee` or redirect into a file. */
+/**
+ * A tool call that changes files: an edit tool, a subagent that isn't a review or a read-only type (it may apply the
+ * fixes), or a shell command above, `tee`, a formatter's `--write`/`--fix`, or a redirect into a file. Quoted arguments and heredoc bodies are blanked
+ * first, so a commit message such as `-m "$(cat <<'EOF' … 3.3.1 -> 3.3.2 … EOF)"` isn't an edit.
+ */
 export function changesFiles(u: ToolUse): boolean {
   if (EDITS.has(u.name)) return true;
-  const c = u.name === "Bash" ? withoutHeredocs(String(u.input.command ?? "")) : "";
-  return /\bsed\s+-i\b|\bpatch\b\s+-p|\btee\b|(^|[^0-9&])>\s*[\w./-]+\.\w+/.test(c) && !createsPr(c);
+  if (u.name === "Agent" || u.name === "Task") return !isReview(u) && !READ_ONLY_AGENTS.has(String(u.input.subagent_type ?? ""));
+  if (u.name !== "Bash") return false;
+  const c = executableText(String(u.input.command ?? ""));
+  if (createsPr(c)) return false;
+  return /\btee\b|\s--(?:write|fix)\b|(^|[^0-9&])>\s*[\w./-]+\.\w+/.test(c) || segments(c).some((s) => SHELL_EDIT.test(s));
 }
 
 /**

@@ -246,15 +246,18 @@ test("pr_opened: with review sessions, a new PR on this repository gets its revi
   expect(owned).toContain(`-C ${dir}`);
   // The review must cover this change: files changed after it, or an earlier PR it belonged to, mean a review session.
   const review = use("Skill", { skill: "engineering:code-review" });
-  for (const after of [use("Edit", { file_path: join(dir, "a.ts") }), use("Bash", { command: "sed -i '' s/a/b/ a.ts" }), use("Bash", { command: "echo x > a.ts" }), use("Bash", { command: "gh pr create --title earlier" })]) {
+  for (const after of [use("Edit", { file_path: join(dir, "a.ts") }), use("Bash", { command: "sed -i '' s/a/b/ a.ts" }), use("Bash", { command: "echo x > a.ts" }), use("Bash", { command: "sed -E -i '' s/a/b/ a.ts" }), use("Bash", { command: "git apply fix.diff" }), use("Bash", { command: "bunx biome check --write" }), use("Agent", { prompt: "Apply the review's fixes to a.ts" }), use("Bash", { command: "gh pr create --title earlier" })]) {
     writeFileSync(transcript, [prompt("Start on 2.1"), review, after, use("Bash", { command: "git push" }), use("Bash", { command: "gh pr create --fill" })].join("\n"));
     expect([after, JSON.parse(hook(OPENED, opened).out).hookSpecificOutput.additionalContext]).toEqual([after, expect.stringContaining('title "Code review: PR #7"')]);
   }
   // The ship order (review, commit, push, open the PR) keeps the review: a commit doesn't change the reviewed code.
-  for (const commit of ["git -C . commit -m fix", "git add -A && git commit -m fix", "git commit -q -F - <<'EOF'\nfix: x > y.md\nEOF"]) {
+  for (const commit of ["git -C . commit -m fix", "git add -A && git commit -m fix", "git commit -q -F - <<'EOF'\nfix: x > y.md\nEOF", "git commit -m \"$(cat <<'EOF'\nbump 3.3.1 -> 3.3.2\nEOF\n)\"", "git commit -m \"tee > x.md\""]) {
     writeFileSync(transcript, [prompt("Start on 2.1"), review, use("Bash", { command: commit }), use("Bash", { command: "git push" }), use("Bash", { command: "gh pr create --fill" })].join("\n"));
     expect([commit, JSON.parse(hook(OPENED, opened).out).hookSpecificOutput.additionalContext]).toEqual([commit, expect.stringContaining("don't start a review session")]);
   }
+  // A read-only subagent after the review doesn't change files either.
+  writeFileSync(transcript, [prompt("Start on 2.1"), review, use("Agent", { subagent_type: "Explore", prompt: "Find callers of a" }), use("Bash", { command: "gh pr create --fill" })].join("\n"));
+  expect(JSON.parse(hook(OPENED, opened).out).hookSpecificOutput.additionalContext).toContain("don't start a review session");
   // A subagent briefed to run the review counts; the opening `gh pr create` itself and a commit before the review don't break it.
   writeFileSync(transcript, [prompt("Start on 2.1"), use("Bash", { command: "git commit -m wip" }), use("Agent", { prompt: "Run engineering:code-review on the diff" }), use("Bash", { command: "gh pr create --fill" })].join("\n"));
   expect(JSON.parse(hook(OPENED, opened).out).hookSpecificOutput.additionalContext).toContain("don't start a review session");
