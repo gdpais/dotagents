@@ -1,10 +1,11 @@
 {
   "securityPaths": [
-    ".claude/delivery.json",
-    ".claude/settings.json",
-    "claude/plugins/delivery/hooks/**",
-    "claude/plugins/delivery/skills/delivery-lifecycle/scripts/pr_risk.ts",
-    "claude/plugins/delivery/skills/delivery-lifecycle/scripts/classify_change.ts"
+    ".claude/**",
+    ".claude-plugin/**",
+    ".github/workflows/**",
+    "claude/plugins/*/.claude-plugin/**",
+    "claude/plugins/**/hooks/**",
+    "claude/plugins/delivery/skills/delivery-lifecycle/scripts/**"
   ],
   "autonomy": {
     "push": [
@@ -22,7 +23,7 @@
     "cleanupMerged": true,
     "merge": {
       "low": "green",
-      "medium": "decide"
+      "medium": "ask"
     }
   }
 }
