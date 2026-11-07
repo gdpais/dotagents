@@ -1,9 +1,28 @@
 {
+  "securityPaths": [
+    ".claude/delivery.json",
+    ".claude/settings.json",
+    "claude/plugins/delivery/hooks/**",
+    "claude/plugins/delivery/skills/delivery-lifecycle/scripts/pr_risk.ts",
+    "claude/plugins/delivery/skills/delivery-lifecycle/scripts/classify_change.ts"
+  ],
   "autonomy": {
-    "push": ["feature/*", "feat/*", "fix/*", "chore/*", "docs/*", "refactor/*", "test/*", "claude/*"],
+    "push": [
+      "feature/*",
+      "feat/*",
+      "fix/*",
+      "chore/*",
+      "docs/*",
+      "refactor/*",
+      "test/*",
+      "claude/*"
+    ],
     "openPr": true,
     "autoFix": true,
     "cleanupMerged": true,
-    "merge": { "low": "green", "medium": "decide" }
+    "merge": {
+      "low": "green",
+      "medium": "decide"
+    }
   }
 }
