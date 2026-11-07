@@ -478,11 +478,11 @@ export function reviewBrief(o: { n: number; url: string; base: string; policy: A
  * reviewer, so it owns the merge and no review session starts (Heartbeat PR 135, 7 Nov 2026: a second review card
  * for a PR this session had reviewed and rated).
  */
-export function reviewedHere(o: { n: number; url: string; policy: Autonomy; riskScript: string }): string {
+export function reviewedHere(o: { n: number; url: string; policy: Autonomy; riskScript: string; mainCheckout: string }): string {
   const merges = o.policy.merge.low !== "ask" || o.policy.merge.medium !== "ask";
   return [
     `Pull request opened: ${o.url}. This session already reviewed this change with engineering:code-review, so it owns PR #${o.n}: don't start a review session for it.`,
-    `If you haven't rated it yet, run \`bun "${o.riskScript}" -C <repo> --pr ${o.n} --review ok|fix|blocking --format md\` and put its Decision block under the review tables${merges ? `, then do what its Next line says. ${mergeOnGreen(o.policy, o.n)}` : "; merging isn't in the policy, so give the user the Decision block and stop."}`,
+    `Rate it on its current head: \`bun "${o.riskScript}" -C ${o.mainCheckout} --pr ${o.n} --review ok|fix|blocking --format md\` and put its Decision block under the review tables${merges ? `, then do what its Next line says. ${mergeOnGreen(o.policy, o.n)}` : "; merging isn't in the policy, so give the user the Decision block and stop."}`,
     "Commits added after the review need a review of their own before the merge.",
   ].join("\n");
 }

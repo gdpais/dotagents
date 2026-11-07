@@ -7,13 +7,13 @@
  * about the merge. Replaces the per-user hook Heartbeat used (~/.claude/hooks/heartbeat-pr-review.sh), whose
  * brief said "Do not merge", so every review session stopped and the merge came back to the user (4 Nov 2026).
  * Silent (no output) without that policy, for other repositories, for a PR that already existed, and when this
- * session already started the PR's review session. A session that already ran engineering:code-review on the change
- * is told it owns the PR instead (no second review).
+ * session already started the PR's review session. A session whose last engineering:code-review came after its last
+ * commit (and after any earlier PR it opened) is told it owns the PR instead (no second review).
  */
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { repoKey, withoutHeredocs } from "./bash_guard";
-import { loadConfig, parseAutonomy, reviewed, reviewedHere, reviewSessionStart, segments, toolUses } from "./autonomy";
+import { isReview, loadConfig, parseAutonomy, reviewedHere, reviewSessionStart, segments, toolUses, type ToolUse } from "./autonomy";
 import { baseBranch } from "./session_context";
 
 const SCRIPTS = join(import.meta.dir, "..", "skills", "delivery-lifecycle", "scripts");
@@ -38,6 +38,24 @@ export function openedPrUrl(output: string, key: string | null): { n: number; ur
   return { n: Number(m[4]), url: m[0], existed: /already exists/i.test(output) };
 }
 
+/** True when a segment of the command runs `git commit` (with `-C <dir>` or `-c <k=v>` options allowed). */
+export function commits(cmd: string): boolean {
+  return segments(withoutHeredocs(cmd)).some((s) => /^(?:[A-Za-z_]\w*=\S*\s+)*(?:timeout\s+\S+\s+)?git\s+(?:-[cC]\s+\S+\s+)*commit\b/.test(s));
+}
+
+/**
+ * True when the session's last engineering:code-review covers the PR just opened: it came after every commit the
+ * session made and after any earlier `gh pr create` (that review belonged to the earlier PR). The opening call itself
+ * may already be the last tool use; it is ignored. A review of other work, or one followed by new commits, doesn't
+ * count, so those PRs still get their review session.
+ */
+export function reviewedThisChange(uses: ToolUse[]): boolean {
+  const bash = (u: ToolUse) => (u.name === "Bash" ? String(u.input.command ?? "") : "");
+  const last = uses.length && createsPr(bash(uses[uses.length - 1])) ? uses.slice(0, -1) : uses;
+  const review = last.findLastIndex(isReview);
+  return review >= 0 && !last.slice(review + 1).some((u) => commits(bash(u)) || createsPr(bash(u)));
+}
+
 export async function main(): Promise<number> {
   let input: { tool_name?: string; tool_input?: { command?: string }; tool_response?: unknown; cwd?: string; transcript_path?: string };
   try { input = JSON.parse(await Bun.stdin.text()); } catch { return 0; }
@@ -54,9 +72,9 @@ export async function main(): Promise<number> {
   if (uses.some((u) => /start_session$/.test(u.name) && String(u.input.title ?? "") === `Code review: PR #${pr.n}`)) return 0;
   const riskScript = join(SCRIPTS, "pr_risk.ts");
   const out = (context: string) => console.log(JSON.stringify({ hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: context } }));
-  if (reviewed(uses)) { out(reviewedHere({ n: pr.n, url: pr.url, policy, riskScript })); return 0; }
   const common = git(["rev-parse", "--git-common-dir"], cwd);
   const main = common ? dirname(isAbsolute(common) ? common : resolve(cwd, common)) : cwd;
+  if (reviewedThisChange(uses)) { out(reviewedHere({ n: pr.n, url: pr.url, policy, riskScript, mainCheckout: main })); return 0; }
   const context = reviewSessionStart({
     n: pr.n, url: pr.url, base: baseBranch(cwd, policy.base), policy,
     riskScript, cleanupScript: join(SCRIPTS, "cleanup_merged.ts"), mainCheckout: main,
