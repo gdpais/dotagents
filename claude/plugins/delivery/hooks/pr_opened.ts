@@ -7,12 +7,13 @@
  * about the merge. Replaces the per-user hook Heartbeat used (~/.claude/hooks/heartbeat-pr-review.sh), whose
  * brief said "Do not merge", so every review session stopped and the merge came back to the user (4 Nov 2026).
  * Silent (no output) without that policy, for other repositories, for a PR that already existed, and when this
- * session already started the PR's review session.
+ * session already started the PR's review session. A session that already ran engineering:code-review on the change
+ * is told it owns the PR instead (no second review).
  */
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { repoKey, withoutHeredocs } from "./bash_guard";
-import { loadConfig, parseAutonomy, reviewSessionStart, segments, toolUses } from "./autonomy";
+import { loadConfig, parseAutonomy, reviewed, reviewedHere, reviewSessionStart, segments, toolUses } from "./autonomy";
 import { baseBranch } from "./session_context";
 
 const SCRIPTS = join(import.meta.dir, "..", "skills", "delivery-lifecycle", "scripts");
@@ -49,15 +50,18 @@ export async function main(): Promise<number> {
   const origin = git(["remote", "get-url", "origin"], cwd);
   const pr = openedPrUrl(output, origin ? repoKey(origin) : null);
   if (!pr || pr.existed) return 0;
-  if (input.transcript_path && existsSync(input.transcript_path)
-    && toolUses(readFileSync(input.transcript_path, "utf8")).some((u) => /start_session$/.test(u.name) && String(u.input.title ?? "") === `Code review: PR #${pr.n}`)) return 0;
+  const uses = input.transcript_path && existsSync(input.transcript_path) ? toolUses(readFileSync(input.transcript_path, "utf8")) : [];
+  if (uses.some((u) => /start_session$/.test(u.name) && String(u.input.title ?? "") === `Code review: PR #${pr.n}`)) return 0;
+  const riskScript = join(SCRIPTS, "pr_risk.ts");
+  const out = (context: string) => console.log(JSON.stringify({ hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: context } }));
+  if (reviewed(uses)) { out(reviewedHere({ n: pr.n, url: pr.url, policy, riskScript })); return 0; }
   const common = git(["rev-parse", "--git-common-dir"], cwd);
   const main = common ? dirname(isAbsolute(common) ? common : resolve(cwd, common)) : cwd;
   const context = reviewSessionStart({
     n: pr.n, url: pr.url, base: baseBranch(cwd, policy.base), policy,
-    riskScript: join(SCRIPTS, "pr_risk.ts"), cleanupScript: join(SCRIPTS, "cleanup_merged.ts"), mainCheckout: main,
+    riskScript, cleanupScript: join(SCRIPTS, "cleanup_merged.ts"), mainCheckout: main,
   });
-  console.log(JSON.stringify({ hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: context } }));
+  out(context);
   return 0;
 }
 

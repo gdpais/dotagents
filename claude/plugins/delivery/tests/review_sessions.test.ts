@@ -236,6 +236,13 @@ test("pr_opened: with review sessions, a new PR on this repository gets its revi
   expect(hook(OPENED, { ...opened, tool_input: { command: "echo 'gh pr create'" } }).out).toBe("");
   writeFileSync(transcript, [prompt("Start on 2.1"), use("mcp__ccd_session__start_session", { title: "Code review: PR #7" })].join("\n"));
   expect(hook(OPENED, opened).out).toBe("");
+  // Heartbeat PR 135 (7 Nov): this session already reviewed the change, so it owns the PR; no second review session.
+  writeFileSync(transcript, [prompt("Start on 2.1"), use("Skill", { skill: "engineering:code-review" })].join("\n"));
+  const owned = JSON.parse(hook(OPENED, opened).out).hookSpecificOutput.additionalContext as string;
+  expect(owned).toContain("don't start a review session");
+  expect(owned).toContain("--pr 7 --review ok|fix|blocking --format md");
+  expect(owned).toContain("gh pr merge 7");
+  expect(owned).not.toContain("start_session with");
   put(".claude/delivery.json", JSON.stringify({ autonomy: AUTONOMY }));
   expect(hook(OPENED, opened).out).toBe("");
 });

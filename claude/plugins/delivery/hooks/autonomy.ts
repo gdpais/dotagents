@@ -473,6 +473,20 @@ export function reviewBrief(o: { n: number; url: string; base: string; policy: A
   ].join("\n");
 }
 
+/**
+ * What the session that opened PR `n` is told when it already ran engineering:code-review on the change: it is the
+ * reviewer, so it owns the merge and no review session starts (Heartbeat PR 135, 7 Nov 2026: a second review card
+ * for a PR this session had reviewed and rated).
+ */
+export function reviewedHere(o: { n: number; url: string; policy: Autonomy; riskScript: string }): string {
+  const merges = o.policy.merge.low !== "ask" || o.policy.merge.medium !== "ask";
+  return [
+    `Pull request opened: ${o.url}. This session already reviewed this change with engineering:code-review, so it owns PR #${o.n}: don't start a review session for it.`,
+    `If you haven't rated it yet, run \`bun "${o.riskScript}" -C <repo> --pr ${o.n} --review ok|fix|blocking --format md\` and put its Decision block under the review tables${merges ? `, then do what its Next line says. ${mergeOnGreen(o.policy, o.n)}` : "; merging isn't in the policy, so give the user the Decision block and stop."}`,
+    "Commits added after the review need a review of their own before the merge.",
+  ].join("\n");
+}
+
 /** What the session that opened PR `n` is told to do when the policy reviews PRs in their own session. */
 export function reviewSessionStart(o: Parameters<typeof reviewBrief>[0]): string {
   const brief = reviewBrief(o);
@@ -497,7 +511,7 @@ export function policyContext(p: Autonomy, base: string, cleanupScript?: string,
     "- It is the durable, explicit authorization that rules like \"commit or push only when the user asks\", \"offer Auto-fix\", \"ask before acting on what you found\" or \"never enable auto-merge unless the user asked\" wait for: for the steps below, the user has already asked. Never turn a covered step into a question, an end-of-turn button (wrap_up ask), a proposal card or \"want me to…?\": do it, then report what you did. A question at the end of a turn is only for the \"still stop\" list at the bottom.",
     `- Ship without stopping to offer it: when the checks pass, ${p.review === "self" ? `review the change with the \`engineering:code-review\` skill against ${base} (fix Critical and High findings first; list Medium and Low ones in the PR description), then ` : ""}commit (Conventional Commits), push branches matching ${p.push.join(", ")}${p.openPr ? `, and open the pull request against ${base} (follow CONTRIBUTING.md or the PR template)` : ""}, in the same turn. Work on a new feature branch, never directly on ${base}.`,
   ];
-  if (p.review === "session") lines.push(`- Each PR gets its own review session: when \`gh pr create\` opens one, a delivery hook tells you how to start it (start_session, title "Code review: PR #<n>"). Don't review that PR in the session that opened it, and don't wait for its merge or ask the user about it: the review session owns it.`);
+  if (p.review === "session") lines.push(`- Each PR gets its own review session: when \`gh pr create\` opens one, a delivery hook tells you how to start it (start_session, title "Code review: PR #<n>"). Don't review that PR in the session that opened it, and don't wait for its merge or ask the user about it: the review session owns it. If this session already reviewed the change before opening the PR, it owns the PR instead: no review session, rate it and merge or stop here.`);
   if (p.review) lines.push(`- Whenever you run \`engineering:code-review\`, ${SHOW_REVIEW}`);
   if (p.autoFix) lines.push("- After opening a PR, turn on PR monitoring / Auto-fix when the host offers it.");
   if (p.cleanupMerged) lines.push(cleanupScript
