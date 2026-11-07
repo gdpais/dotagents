@@ -443,7 +443,7 @@ export const SHOW_REVIEW = "show its output in your reply as the skill writes it
 /** The merge rules by risk level that `autonomy.merge` sets. */
 export function mergeRules(p: Autonomy): string {
   const medium = p.merge.medium === "decide"
-    ? "your call, one of three: merge on green when the review is ok and the evidence shows the feature working; block it (don't merge; fix it, or say why it can't merge) when the review found Critical or High issues or the change isn't right yet; or ask the user, with evidence that the feature works and why it should merge"
+    ? "your call, one of three: merge on green (the default) when the review is ok, any required security review is clean and the product evidence shows the feature working; block it (don't merge; fix it, or say why it can't merge) when the review found Critical or High issues or the change isn't right yet; or ask the user, only when you doubt it works (evidence missing, inconclusive or contradicting the tests)"
     : p.merge.medium === "green" ? "merge on green" : "ask the user, with evidence";
   return `low: ${p.merge.low === "green" ? "merge on green" : "ask the user"}. medium: ${medium}. breaking: never merge it yourself; wait for the user's review and approval, and always give evidence that the feature works. Never merge on red CI or with --admin.`;
 }
