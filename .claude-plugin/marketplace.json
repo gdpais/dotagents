@@ -21,6 +21,36 @@
       "description": "On-demand COO portfolio review across projects, stored under the project where it runs.",
       "source": "./claude/plugins/coo",
       "category": "productivity"
+    },
+    {
+      "name": "blast-radius",
+      "description": "Holds risky shell commands and shows what they would change, with Proceed and Cancel buttons. (Anthropic claude-code-playground mod, shared as-is.)",
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/anthropics/claude-code-playground.git",
+        "path": "claude-code/mods/blast-radius"
+      },
+      "category": "productivity"
+    },
+    {
+      "name": "replay-theater",
+      "description": "Step through the file edits Claude made in the last turn, one diff at a time. (Anthropic claude-code-playground mod, shared as-is.)",
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/anthropics/claude-code-playground.git",
+        "path": "claude-code/mods/replay-theater"
+      },
+      "category": "productivity"
+    },
+    {
+      "name": "token-weather",
+      "description": "A live forecast of the context window, drawn above the prompt. (Anthropic claude-code-playground mod, shared as-is.)",
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/anthropics/claude-code-playground.git",
+        "path": "claude-code/mods/token-weather"
+      },
+      "category": "productivity"
     }
   ]
 }
