@@ -236,6 +236,28 @@ test("pr_opened: with review sessions, a new PR on this repository gets its revi
   expect(hook(OPENED, { ...opened, tool_input: { command: "echo 'gh pr create'" } }).out).toBe("");
   writeFileSync(transcript, [prompt("Start on 2.1"), use("mcp__ccd_session__start_session", { title: "Code review: PR #7" })].join("\n"));
   expect(hook(OPENED, opened).out).toBe("");
+  // Heartbeat PR 135 (7 Nov): this session already reviewed the change, so it owns the PR; no second review session.
+  writeFileSync(transcript, [prompt("Start on 2.1"), use("Skill", { skill: "engineering:code-review" })].join("\n"));
+  const owned = JSON.parse(hook(OPENED, opened).out).hookSpecificOutput.additionalContext as string;
+  expect(owned).toContain("don't start a review session");
+  expect(owned).toContain("--pr 7 --review ok|fix|blocking --format md");
+  expect(owned).toContain("gh pr merge 7");
+  expect(owned).not.toContain("start_session with");
+  expect(owned).toContain(`-C ${dir}`);
+  // The review must cover this change: commits after it, or an earlier PR it belonged to, mean a review session.
+  const review = use("Skill", { skill: "engineering:code-review" });
+  for (const after of ["git -C . commit -m fix", "git add -A && git commit -m fix", "gh pr create --title earlier"]) {
+    writeFileSync(transcript, [prompt("Start on 2.1"), review, use("Bash", { command: after }), use("Bash", { command: "git push" }), use("Bash", { command: "gh pr create --fill" })].join("\n"));
+    expect([after, JSON.parse(hook(OPENED, opened).out).hookSpecificOutput.additionalContext]).toEqual([after, expect.stringContaining('title "Code review: PR #7"')]);
+  }
+  // A subagent briefed to run the review counts; the opening `gh pr create` itself and a commit before the review don't break it.
+  writeFileSync(transcript, [prompt("Start on 2.1"), use("Bash", { command: "git commit -m wip" }), use("Agent", { prompt: "Run engineering:code-review on the diff" }), use("Bash", { command: "gh pr create --fill" })].join("\n"));
+  expect(JSON.parse(hook(OPENED, opened).out).hookSpecificOutput.additionalContext).toContain("don't start a review session");
+  // Without merging in the policy, the owning session reports and stops.
+  put(".claude/delivery.json", JSON.stringify({ autonomy: { push: ["feature/*"], review: "session" } }));
+  const asking = JSON.parse(hook(OPENED, opened).out).hookSpecificOutput.additionalContext as string;
+  expect(asking).toContain("merging isn't in the policy");
+  expect(asking).not.toContain("gh pr merge");
   put(".claude/delivery.json", JSON.stringify({ autonomy: AUTONOMY }));
   expect(hook(OPENED, opened).out).toBe("");
 });
