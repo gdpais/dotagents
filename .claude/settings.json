@@ -1,4 +1,6 @@
 {
+  "model": "opus",
+  "enableWorkflows": true,
   "enabledPlugins": {
     "session-report@claude-plugins-official": true,
     "project-artifact@claude-plugins-official": true,
