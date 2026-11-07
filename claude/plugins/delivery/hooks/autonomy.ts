@@ -443,7 +443,7 @@ export const SHOW_REVIEW = "show its output in your reply as the skill writes it
 /** The merge rules by risk level that `autonomy.merge` sets. */
 export function mergeRules(p: Autonomy): string {
   const medium = p.merge.medium === "decide"
-    ? "your call, one of three: merge on green when the review is ok and the evidence shows the feature working; block it (don't merge; fix it, or say why it can't merge) when the review found Critical or High issues or the change isn't right yet; or ask the user, with evidence that the feature works and why it should merge"
+    ? "your call, one of three: merge on green (the default) when the review is ok, any required security review is clean and the product evidence shows the feature working; block it (don't merge; fix it, or say why it can't merge) when the review found Critical or High issues or the change isn't right yet; or ask the user, only when you doubt it works (evidence missing, inconclusive or contradicting the tests)"
     : p.merge.medium === "green" ? "merge on green" : "ask the user, with evidence";
   return `low: ${p.merge.low === "green" ? "merge on green" : "ask the user"}. medium: ${medium}. breaking: never merge it yourself; wait for the user's review and approval, and always give evidence that the feature works. Never merge on red CI or with --admin.`;
 }
@@ -526,7 +526,7 @@ export function policyContext(p: Autonomy, base: string, cleanupScript?: string,
     `  It rates the PR low, medium or breaking from the diff. Raise the level when the review shows more risk, never lower it, and when unsure between medium and breaking, treat it as breaking. Medium means decide, not ask: ask only when you have a real doubt you can name.`,
     `  ${mergeRules(p)}`,
     `  ${mergeOnGreen(p)}`,
-    "  Evidence faces the product and fits the project: screenshots of the UI, a recording of the feature in use, a live demo of the service (the requests and what comes back), a run on a local cluster, plus well-defined test results (commands, exit codes, counts, which tests cover the feature). The script lists what fits the diff. Put it in the PR and in the ask. With several PRs or sessions waiting, ask once for all of them.",
+    "  Evidence faces the product and fits the project: screenshots of the UI, a recording of the feature in use, a live demo of the service (the requests and what comes back), a run on a local cluster, plus well-defined test results (commands, exit codes, counts, which tests cover the feature). The script lists what fits the diff. Summarise it in the PR. An ask is the end-of-turn card and shows the review tables and the Decision block, then the product working with the change, sent as files (SendUserFile: screenshots, a recording, a demo or hook-replay transcript); tests and CI back it up but never stand alone. With several PRs or sessions waiting, ask once for all of them.",
     "  After a merge, clean up (below) and bring the dependent branches up to date with the base before their own review.",
   );
   lines.push(

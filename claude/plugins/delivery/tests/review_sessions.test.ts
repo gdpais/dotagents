@@ -111,7 +111,7 @@ test("nextStep and renderMd: the decision under the review's tables", () => {
   expect(nextStep(base)).toBe("merge: `gh pr merge 5 --merge --match-head-commit 6619c9e6d50b`");
   expect(nextStep({ ...base, ci: "pending", mergeState: "BLOCKED" }, "squash")).toContain("`gh pr merge 5 --auto --squash --match-head-commit 6619c9e6d50b`");
   expect(nextStep({ ...base, ci: "pending" })).toContain("wait for it");
-  expect(nextStep({ ...base, route: "Claude decides: merge on green, block, or ask" })).toMatch(/^if the evidence shows it working, merge: .*otherwise block it or ask/);
+  expect(nextStep({ ...base, route: "Claude decides: merge on green, block, or ask" })).toMatch(/^if the evidence shows it working, merge: .*otherwise block it, or ask only if you doubt it works: the review tables plus the product evidence/);
   expect(nextStep({ ...base, level: "breaking", route: "needs your approval", auto: false })).toContain("don't merge: ask the user for their review and approval");
   expect(nextStep({ ...base, route: "fix first", auto: false })).toContain("fix the Critical and High findings");
   expect(nextStep({ ...base, ci: "red" })).toContain("CI is red");

@@ -41,3 +41,5 @@
 **v3.3.1 (2026-11-07, no redundant review):** a session that reviewed its change with `engineering:code-review` after its last commit and before opening the PR owns that PR: the hook tells it to rate and merge or stop instead of starting a second review session (DL-88).
 
 **v3.3.2 (2026-11-07, review before commit):** the review that makes the opening session the PR's owner may come before the commit and push, as the ship order has it; only a file change or an earlier PR after the review sends the PR to a review session (DL-89).
+
+**v3.3.3 (2026-11-07, medium asks only in doubt):** a medium PR merges on green when the review is clean and the product evidence shows it working; Claude asks only when it doubts it works, as the end-of-turn card, with the review tables and product evidence sent as files (DL-91). dotagents gets its own merge policy, with plugin hooks, the marketplace and CI as security paths (DL-90).

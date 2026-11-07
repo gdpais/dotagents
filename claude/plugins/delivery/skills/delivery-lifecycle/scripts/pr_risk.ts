@@ -208,13 +208,13 @@ export function nextStep(r: Risk, method = "merge"): string {
   const n = r.pr ?? "<n>", head = r.head ?? "<head>";
   if (r.incomplete) return `ask the user: ${r.incomplete}`;
   if (r.route === "fix first") return "fix the Critical and High findings on the PR branch, push, then rate it again";
-  if (!r.auto) return `don't merge: ask the user for ${r.level === "breaking" ? "their review and approval" : "approval"}, with the evidence below`;
+  if (!r.auto) return `don't merge: ask the user for ${r.level === "breaking" ? "their review and approval" : "approval"} in the end-of-turn card, with the review tables and the product evidence below, sent as files`;
   if (r.pr === null) return "open the pull request, then rate it with --pr";
   if (r.draft) return `it's a draft: mark it ready (\`gh pr ready ${n}\`) when it is, or ask`;
   const decide = r.route.startsWith("Claude decides") ? "if the evidence shows it working, " : "";
-  const fallback = decide ? "; otherwise block it or ask, with the evidence" : "";
+  const fallback = decide ? "; otherwise block it, or ask only if you doubt it works: the review tables plus the product evidence below, sent as files, in the end-of-turn card" : "";
   if (r.ci === "red") return "CI is red: fix it on the branch (or tell the session that owns it), then rate it again";
-  if (r.ci === "none") return "no CI checks reported: ask the user, with the evidence";
+  if (r.ci === "none") return "no CI checks reported: ask the user, with the review tables and the product evidence";
   if (r.ci === "green") return `${decide}merge: \`gh pr merge ${n} --${method} --match-head-commit ${head}\`${fallback}`;
   return r.mergeState === "BLOCKED"
     ? `${decide}set auto-merge on this head (GitHub merges it once the required checks pass): \`gh pr merge ${n} --auto --${method} --match-head-commit ${head}\`${fallback}`
@@ -235,7 +235,7 @@ export function renderMd(r: Risk): string {
     `**Next:** ${r.next ?? nextStep(r)}`,
   ];
   if (r.level === "breaking") lines.push("", "Breaking: never merged by Claude; it waits for your review and approval.");
-  lines.push("", r.auto ? "**Evidence** (summarise it in the PR; give it in full if you ask instead of merging):" : "**Evidence for the approval request** (product-facing):");
+  lines.push("", r.auto ? "**Evidence** (summarise it in the PR; if you ask instead of merging, send it in full as files with the review tables):" : "**Evidence for the approval request** (the product working with the change, sent as files with the review tables):");
   for (const e of r.evidence) lines.push(`- ${e}`);
   return lines.join("\n");
 }
@@ -245,7 +245,7 @@ export function render(r: Risk): string {
   if (r.level === "breaking") lines.push("  never merge it yourself: wait for the user's review and approval");
   for (const why of r.reasons) lines.push(`  - ${why}`);
   lines.push(`next: ${r.next ?? nextStep(r)}`);
-  lines.push(r.auto ? "evidence (summarise in the PR; give it in full if you ask instead of merging):" : "evidence for the approval request (product-facing):");
+  lines.push(r.auto ? "evidence (summarise in the PR; if you ask instead of merging, send it in full as files with the review tables):" : "evidence for the approval request (the product working with the change, sent as files with the review tables):");
   for (const e of r.evidence) lines.push(`  - ${e}`);
   return lines.join("\n");
 }

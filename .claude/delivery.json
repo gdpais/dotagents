@@ -1,0 +1,34 @@
+{
+  "securityPaths": [
+    ".claude/**",
+    ".claude-plugin/**",
+    ".github/workflows/**",
+    "claude/plugins/*/.claude-plugin/**",
+    "claude/plugins/**/hooks/**",
+    "claude/plugins/delivery/skills/delivery-lifecycle/scripts/**"
+  ],
+  "evidence": [
+    "Hook replay: the changed hook run on a recorded or crafted tool call (stdin JSON), with its decision or message before and after the change.",
+    "Claude desktop app screenshot of the changed behaviour where it shows there (card, toast, pane, mod, status line).",
+    "For skill or policy text: a headless session transcript (claude -p) showing the new behaviour."
+  ],
+  "autonomy": {
+    "push": [
+      "feature/*",
+      "feat/*",
+      "fix/*",
+      "chore/*",
+      "docs/*",
+      "refactor/*",
+      "test/*",
+      "claude/*"
+    ],
+    "openPr": true,
+    "autoFix": true,
+    "cleanupMerged": true,
+    "merge": {
+      "low": "green",
+      "medium": "decide"
+    }
+  }
+}
