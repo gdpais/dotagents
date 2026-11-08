@@ -44,6 +44,23 @@ async function git(args: string[], cwd?: string): Promise<string | null> {
   }
 }
 
+/** A git runner: stdout, or null when git fails. */
+export type Git = (args: string[], cwd?: string) => Promise<string | null>;
+
+/**
+ * A git runner that runs each (cwd, args) once and hands later callers the same result. Use one per check, and
+ * only for lookups that can't change while it runs (the toplevel, refs, the diff being classified).
+ */
+export function memoGit(run: Git = git): Git {
+  const seen = new Map<string, Promise<string | null>>();
+  return (args, cwd) => {
+    const key = JSON.stringify([cwd ?? null, args]);
+    let p = seen.get(key);
+    if (!p) { p = run(args, cwd); seen.set(key, p); }
+    return p;
+  };
+}
+
 // ---------------------------------------------------------------- path rules
 const GENERATED = [
   /(^|\/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb?|poetry\.lock|Pipfile\.lock|Cargo\.lock|go\.sum|composer\.lock|Gemfile\.lock|uv\.lock)$/,
@@ -276,13 +293,17 @@ export function attachAddedLines(raw: string, files: Map<string, FileChange>) {
   }
 }
 
-export async function collect(cwd: string | undefined, diffArgs: string[], includeUntracked: boolean): Promise<FileChange[] | string> {
-  const [numstat, patch] = await Promise.all([git(["diff", "--numstat", "-M", ...diffArgs], cwd), git(["diff", "-U0", "-M", "--no-color", ...diffArgs], cwd)]);
+export async function collect(cwd: string | undefined, diffArgs: string[], includeUntracked: boolean, g: Git = git): Promise<FileChange[] | string> {
+  const [numstat, patch, untrackedOut] = await Promise.all([
+    g(["diff", "--numstat", "-M", ...diffArgs], cwd),
+    g(["diff", "-U0", "-M", "--no-color", ...diffArgs], cwd),
+    includeUntracked ? g(["ls-files", "--others", "--exclude-standard"], cwd) : null,
+  ]);
   if (numstat === null || patch === null) return `git diff ${diffArgs.join(" ")} failed`;
   const files = parseNumstat(numstat);
   attachAddedLines(patch, files);
   if (includeUntracked) {
-    const untracked = (await git(["ls-files", "--others", "--exclude-standard"], cwd)) ?? "";
+    const untracked = untrackedOut ?? "";
     for (const path of untracked.split("\n").filter(Boolean)) {
       const full = join(cwd ?? ".", path);
       let text = "";
@@ -300,8 +321,16 @@ export interface Target { base?: string; range?: string }
 export type Classified = ReturnType<typeof classify> & { target: Record<string, string>; diffArgs: string[]; config: string | null };
 
 /** Resolve the target, read .claude/delivery.json, collect the diff and classify it. Returns an error string on failure. */
-export async function classifyRepo(cwd: string | undefined, target: Target = {}, configPath?: string): Promise<Classified | string> {
-  const top = (await git(["rev-parse", "--show-toplevel"], cwd))?.trim();
+export async function classifyRepo(cwd: string | undefined, target: Target = {}, configPath?: string, opts: { git?: Git } = {}): Promise<Classified | string> {
+  const g = opts.git ?? git;
+  // The toplevel and the target's ref don't depend on each other: ask git for both at once.
+  const remote = `origin/${target.base}`;
+  const [topOut, remoteOut, headOut] = await Promise.all([
+    g(["rev-parse", "--show-toplevel"], cwd),
+    target.base !== undefined ? g(["rev-parse", "--verify", "--quiet", `refs/remotes/${remote}`], cwd) : null,
+    target.base === undefined && target.range === undefined ? g(["rev-parse", "--verify", "--quiet", "HEAD"], cwd) : null,
+  ]);
+  const top = topOut?.trim();
   if (!top) return "not inside a git work tree";
   let config: Config = {};
   const path = configPath ?? join(top, ".claude", "delivery.json");
@@ -311,18 +340,17 @@ export async function classifyRepo(cwd: string | undefined, target: Target = {},
   let t: Record<string, string>, diffArgs: string[], untracked: boolean;
   if (target.base !== undefined) {
     // Prefer origin/<base>: a stale local base would count already-merged commits as part of the change.
-    const remote = `origin/${target.base}`;
-    const ref = (await git(["rev-parse", "--verify", "--quiet", `refs/remotes/${remote}`], cwd)) ? remote : target.base;
-    const mb = (await git(["merge-base", "HEAD", ref], cwd))?.trim();
+    const ref = remoteOut ? remote : target.base;
+    const mb = (await g(["merge-base", "HEAD", ref], cwd))?.trim();
     if (!mb) return `no merge base between HEAD and ${ref}`;
     t = { mode: "base", base: target.base, base_ref: ref, merge_base: mb }; diffArgs = [mb]; untracked = true;
   } else if (target.range !== undefined) {
     t = { mode: "range", range: target.range }; diffArgs = [target.range]; untracked = false;
   } else {
-    const head = (await git(["rev-parse", "--verify", "--quiet", "HEAD"], cwd))?.trim();
+    const head = headOut?.trim();
     t = { mode: "uncommitted", head: head ?? "" }; diffArgs = head ? ["HEAD"] : ["--cached"]; untracked = true;
   }
-  const changes = await collect(cwd, diffArgs, untracked);
+  const changes = await collect(cwd, diffArgs, untracked, g);
   if (typeof changes === "string") return changes;
   return { target: t, diffArgs, config: existsSync(path) ? path : null, ...classify(changes, config) };
 }
