@@ -34,7 +34,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/run.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/bash_guard.ts\"",
+            "command": "command -v bun >/dev/null 2>&1 && exec bun \"${CLAUDE_PLUGIN_ROOT}/hooks/bash_guard.ts\"; [ -x \"$HOME/.bun/bin/bun\" ] && exec \"$HOME/.bun/bin/bun\" \"${CLAUDE_PLUGIN_ROOT}/hooks/bash_guard.ts\"; exit 0",
             "timeout": 45
           }
         ]
@@ -56,7 +56,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/run.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/pr_opened.ts\"",
+            "command": "command -v bun >/dev/null 2>&1 && exec bun \"${CLAUDE_PLUGIN_ROOT}/hooks/pr_opened.ts\"; [ -x \"$HOME/.bun/bin/bun\" ] && exec \"$HOME/.bun/bin/bun\" \"${CLAUDE_PLUGIN_ROOT}/hooks/pr_opened.ts\"; exit 0",
             "timeout": 10
           }
         ]
