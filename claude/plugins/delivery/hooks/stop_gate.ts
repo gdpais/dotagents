@@ -33,7 +33,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { memoGit, type Git } from "../skills/delivery-lifecycle/scripts/classify_change";
-import { preflight, type Preflight, type Review } from "../skills/delivery-lifecycle/scripts/preflight";
+import { preflight, type Preflight, type QualityCache, type QualityResult, type Review } from "../skills/delivery-lifecycle/scripts/preflight";
 import { assistantEntries, asksToHold, globMatch, lastUserPrompt, loadConfig, parseAutonomy, realPath, reviewed, SHOW_REVIEW, skillUsed, toolUses, unshownReviews, type Autonomy, type ToolUse } from "./autonomy";
 import { repoKey } from "./bash_guard";
 import { baseBranch } from "./session_context";
@@ -41,7 +41,7 @@ import { baseBranch } from "./session_context";
 export { asksToHold, lastUserPrompt, reviewed, skillUsed, toolUses };
 
 interface HookInput { session_id?: string; transcript_path?: string; cwd?: string; stop_hook_active?: boolean }
-interface State { qualityBlocks: number; reviewBlocks: string[]; shipNudged?: boolean; reviewNudged?: boolean; tablesShown?: string[] }
+interface State { qualityBlocks: number; reviewBlocks: string[]; shipNudged?: boolean; reviewNudged?: boolean; tablesShown?: string[]; quality?: Record<string, QualityResult> }
 type Any = any;
 
 const EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
@@ -296,7 +296,8 @@ export async function main(): Promise<number> {
   const statePath = join(stateDir, `${(input.session_id ?? "unknown").replace(/[^\w-]/g, "")}.json`);
   let state: State = { qualityBlocks: 0, reviewBlocks: [] };
   try { state = JSON.parse(readFileSync(statePath, "utf8")); } catch { /* first stop */ }
-  const saveState = () => { try { mkdirSync(stateDir, { recursive: true }); writeFileSync(statePath, JSON.stringify(state)); } catch { /* best effort */ } };
+  // Owner-only: the state holds the quality commands' output tails.
+  const saveState = () => { try { mkdirSync(stateDir, { recursive: true, mode: 0o700 }); writeFileSync(statePath, JSON.stringify(state), { mode: 0o600 }); } catch { /* best effort */ } };
 
   // A review whose tables no reply shows: once per review, edits or not (a clean review edits nothing).
   const unshown = unshownReviews(entries).filter((k) => !(state.tablesShown ?? []).includes(k));
@@ -312,7 +313,19 @@ export async function main(): Promise<number> {
   // files). The toplevel classify needs first is asked for alongside target's lookups.
   const pre = memoGit();
   const [t] = await Promise.all([target(cwd, trimmed(pre)), pre(["rev-parse", "--show-toplevel"], cwd)]);
-  const p = await preflight(cwd, { ...t, timeoutS: config.preflight?.timeoutSeconds ?? 300, git: pre });
+  // Every stop after the session's first edit runs the check again, often on files it already checked (a reply,
+  // a commit of checked work): reuse the quality results for the same files. Only the latest files' results are kept.
+  let cacheChanged = false;
+  const cache: QualityCache = {
+    get: (key) => state.quality?.[key],
+    set: (key, result) => {
+      const files = key.slice(0, key.indexOf("\0") + 1);
+      state.quality = { ...Object.fromEntries(Object.entries(state.quality ?? {}).filter(([k]) => k.startsWith(files))), [key]: result };
+      cacheChanged = true;
+    },
+  };
+  const p = await preflight(cwd, { ...t, timeoutS: config.preflight?.timeoutSeconds ?? 300, git: pre, cache });
+  if (cacheChanged) saveState();
   if (typeof p === "string") return 0; // not a reviewable repo state: never block on our own errors
   // After the quality commands ran (they may write files), only the toplevel and origin/HEAD are reused.
   const reuse = new Set(["rev-parse --show-toplevel", ORIGIN_HEAD.join(" ")]);

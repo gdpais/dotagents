@@ -18,7 +18,7 @@
  * marks the ones backed by a risky code pattern or a configured path.
  * Exit 2 on errors. Running the quality kinds executes the repo's commands.
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { parseArgs } from "node:util";
 import { classifyRepo, memoGit, type Classified, type Git } from "./classify_change";
@@ -26,13 +26,16 @@ import { detect, KINDS, runCommand, type Kind } from "./quality_gate";
 import { scanPatch, type Finding } from "./scan_secrets";
 
 export interface Review { gate: string; skill: string; why: string; strong: boolean }
+export type QualityResult = Awaited<ReturnType<typeof runCommand>>;
+/** Quality results by key (`treeKey`, kind, timeout, command), so a check of files already checked reuses them. */
+export interface QualityCache { get(key: string): QualityResult | undefined; set(key: string, result: QualityResult): void }
 export interface Preflight {
   ok: boolean;
   target: Record<string, string>;
   size: string;
   totals: Classified["totals"];
   changed: string[];
-  quality: { kind: string; command: string; passed: boolean; exit_code: number; timed_out: boolean; no_tests: boolean; duration_s: number; output_tail: string }[];
+  quality: { kind: string; command: string; passed: boolean; exit_code: number; timed_out: boolean; no_tests: boolean; duration_s: number; output_tail: string; cached?: boolean }[];
   not_detected: string[];
   secrets: Finding[];
   ci: { id: string; level: string; file: string; job?: string; message: string }[];
@@ -54,6 +57,37 @@ async function git(args: string[], cwd: string): Promise<string | null> {
   return code === 0 ? out : null;
 }
 
+/**
+ * A key for the files the quality commands see: each tracked and untracked (not ignored) file's blob id, with the
+ * work tree's edits applied. The same files give the same key whatever HEAD is, so committing checked work keeps its
+ * results. Null when git can't say (then nothing is cached).
+ */
+export async function treeKey(top: string, g: Git = git as Git): Promise<string | null> {
+  const [index, changed, untracked] = await Promise.all([
+    g(["ls-files", "-s", "-z"], top), g(["diff", "--name-only", "-z"], top), g(["ls-files", "--others", "--exclude-standard", "-z"], top),
+  ]);
+  if (index === null || changed === null || untracked === null) return null;
+  const files = new Map<string, string>();
+  for (const e of index.split("\0")) {
+    const m = /^\d+ ([0-9a-f]+) (\d)\t([^]*)$/.exec(e);
+    if (m) files.set(m[2] === "0" ? m[3] : `${m[3]}\0${m[2]}`, m[1]);
+  }
+  const edited = [...new Set([...changed.split("\0"), ...untracked.split("\0")].filter(Boolean))];
+  const present = edited.filter((f) => { try { return statSync(join(top, f)).isFile(); } catch { return false; } });
+  const kept = new Set(present);
+  for (const f of edited) if (!kept.has(f)) files.delete(f);
+  if (present.length) {
+    try {
+      const p = Bun.spawn(["git", "hash-object", "--stdin-paths"], { cwd: top, stdin: new Blob([present.join("\n") + "\n"]), stdout: "pipe", stderr: "ignore" });
+      const [out, code] = await Promise.all([new Response(p.stdout).text(), p.exited]);
+      const ids = out.trim().split("\n");
+      if (code !== 0 || ids.length !== present.length) return null;
+      present.forEach((f, i) => files.set(f, ids[i]));
+    } catch { return null; }
+  }
+  return Bun.hash([...files].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([f, id]) => `${id} ${f}`).join("\0")).toString(36);
+}
+
 function configuredKinds(top: string | null): Kind[] | null {
   if (!top) return null;
   const path = join(top, ".claude", "delivery.json");
@@ -64,8 +98,11 @@ function configuredKinds(top: string | null): Kind[] | null {
   } catch { return null; }
 }
 
-/** `git`: a shared runner (memoGit) so a caller that already asked git for the toplevel or refs isn't asked again. */
-export async function preflight(cwd: string, opts: { base?: string; range?: string; run?: Kind[]; timeoutS?: number; git?: Git } = {}): Promise<Preflight | string> {
+/**
+ * `git`: a shared runner (memoGit) so a caller that already asked git for the toplevel or refs isn't asked again.
+ * `cache`: reuse quality results for the same files (`treeKey`); results that timed out aren't stored.
+ */
+export async function preflight(cwd: string, opts: { base?: string; range?: string; run?: Kind[]; timeoutS?: number; git?: Git; cache?: QualityCache } = {}): Promise<Preflight | string> {
   const g = opts.git ?? memoGit();
   const c = await classifyRepo(cwd, { base: opts.base, range: opts.range }, undefined, { git: g });
   if (typeof c === "string") return c;
@@ -75,19 +112,27 @@ export async function preflight(cwd: string, opts: { base?: string; range?: stri
   const kinds = opts.run ?? configuredKinds(top) ?? (["lint", "typecheck", "test"] as Kind[]);
   const found = detect(top);
   const codeChanged = c.changed.some((f) => !/\.(md|mdx|rst|txt|adoc)$/i.test(f));
-  const quality = [];
-  if (codeChanged) {
-    for (const cmd of found.commands.filter((x) => kinds.includes(x.kind))) {
-      quality.push(await runCommand(cmd, top, opts.timeoutS ?? 300, 15));
-    }
+  const quality: (QualityResult & { cached?: boolean })[] = [];
+  const toRun = codeChanged ? found.commands.filter((x) => kinds.includes(x.kind)) : [];
+  // Keyed before any command runs: a formatter may rewrite files, and its result belongs to the files it was given.
+  const tree = opts.cache && toRun.length ? await treeKey(top, g) : null;
+  const timeoutS = opts.timeoutS ?? 300;
+  for (const cmd of toRun) {
+    const key = tree ? [tree, cmd.kind, timeoutS, cmd.command].join("\0") : null;
+    const hit = key ? opts.cache!.get(key) : undefined;
+    if (hit) { quality.push({ ...hit, cached: true }); continue; }
+    const r = await runCommand(cmd, top, timeoutS, 15);
+    if (key && !r.timed_out) opts.cache!.set(key, r);
+    quality.push(r);
   }
   const notDetected = kinds.filter((k) => !found.commands.some((x) => x.kind === k));
 
   // Secrets in added lines only.
-  // The untracked list classify read is still current unless a quality command ran since (it may write files).
+  // The untracked list classify read is still current unless a quality command ran since (it may write files);
+  // a cached result ran nothing.
   const [patchOut, untrackedOut] = await Promise.all([
     git(["diff", "-U0", "--no-color", "--no-ext-diff", ...c.diffArgs], top),
-    c.target.mode !== "range" ? (quality.length ? git : g)(["ls-files", "--others", "--exclude-standard"], top) : null,
+    c.target.mode !== "range" ? (quality.some((q) => !q.cached) ? git : g)(["ls-files", "--others", "--exclude-standard"], top) : null,
   ]);
   const patch = patchOut ?? "";
   let secrets = scanPatch(patch);
@@ -129,13 +174,13 @@ export async function preflight(cwd: string, opts: { base?: string; range?: stri
   for (const q of quality.filter((x) => x.no_tests)) advisories.push(`\`${q.command}\` found no test files; nothing was tested`);
 
   const blocking = [
-    ...quality.filter((q) => !q.passed).map((q) => `${q.kind} failed: \`${q.command}\` exit ${q.exit_code}${q.timed_out ? " (timed out)" : ""}`),
+    ...quality.filter((q) => !q.passed).map((q) => `${q.kind} failed: \`${q.command}\` exit ${q.exit_code}${q.timed_out ? " (timed out)" : ""}${q.cached ? " (result from an earlier check of the same files)" : ""}`),
     ...secrets.filter((s) => s.confidence === "high").map((s) => `secret (${s.rule}) at ${s.file}:${s.line}, value ${s.masked}`),
     ...ci.filter((f) => f.level === "high").map((f) => `CI ${f.id} in ${f.file}${f.job ? ` job ${f.job}` : ""}: ${f.message}`),
   ];
   return {
     ok: blocking.length === 0, target: c.target, size: c.size, totals: c.totals, changed: c.changed,
-    quality: quality.map(({ kind, command, passed, exit_code, timed_out, no_tests, duration_s, output_tail }) => ({ kind, command, passed, exit_code, timed_out, no_tests, duration_s, output_tail })),
+    quality: quality.map(({ kind, command, passed, exit_code, timed_out, no_tests, duration_s, output_tail, cached }) => ({ kind, command, passed, exit_code, timed_out, no_tests, duration_s, output_tail, ...(cached ? { cached } : {}) })),
     not_detected: notDetected, secrets, ci, reviews, advisories, blocking,
   };
 }
@@ -143,7 +188,7 @@ export async function preflight(cwd: string, opts: { base?: string; range?: stri
 export function render(p: Preflight): string {
   const t = p.totals;
   const lines = [`preflight: ${p.ok ? "PASS" : `FAIL (${p.blocking.length} blocking)`} · size ${p.size} · ${t.reviewed_files} file(s) +${t.added}/-${t.deleted}`];
-  for (const q of p.quality) lines.push(`${q.no_tests ? "·" : q.passed ? "✓" : "✗"} ${q.kind.padEnd(9)} ${q.command} — ${q.no_tests ? "no test files" : `exit ${q.exit_code}`}, ${q.duration_s}s`);
+  for (const q of p.quality) lines.push(`${q.no_tests ? "·" : q.passed ? "✓" : "✗"} ${q.kind.padEnd(9)} ${q.command} — ${q.no_tests ? "no test files" : `exit ${q.exit_code}`}, ${q.duration_s}s${q.cached ? " (cached: same files as an earlier check)" : ""}`);
   if (!p.quality.length) lines.push("· quality  not run (no code change)");
   if (p.not_detected.length) lines.push(`· not detected: ${p.not_detected.join(", ")}`);
   lines.push(p.secrets.length ? `✗ secrets  ${p.secrets.length} finding(s): ${p.secrets.slice(0, 3).map((s) => `${s.rule} ${s.file}:${s.line} ${s.masked}`).join("; ")}` : "✓ secrets  none in the diff");
