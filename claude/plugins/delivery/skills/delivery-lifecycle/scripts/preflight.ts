@@ -21,7 +21,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { parseArgs } from "node:util";
-import { classifyRepo, type Classified } from "./classify_change";
+import { classifyRepo, memoGit, type Classified, type Git } from "./classify_change";
 import { detect, KINDS, runCommand, type Kind } from "./quality_gate";
 import { scanPatch, type Finding } from "./scan_secrets";
 
@@ -64,10 +64,12 @@ function configuredKinds(top: string | null): Kind[] | null {
   } catch { return null; }
 }
 
-export async function preflight(cwd: string, opts: { base?: string; range?: string; run?: Kind[]; timeoutS?: number } = {}): Promise<Preflight | string> {
-  const c = await classifyRepo(cwd, { base: opts.base, range: opts.range });
+/** `git`: a shared runner (memoGit) so a caller that already asked git for the toplevel or refs isn't asked again. */
+export async function preflight(cwd: string, opts: { base?: string; range?: string; run?: Kind[]; timeoutS?: number; git?: Git } = {}): Promise<Preflight | string> {
+  const g = opts.git ?? memoGit();
+  const c = await classifyRepo(cwd, { base: opts.base, range: opts.range }, undefined, { git: g });
   if (typeof c === "string") return c;
-  const top = (await git(["rev-parse", "--show-toplevel"], cwd))?.trim() ?? cwd;
+  const top = (await g(["rev-parse", "--show-toplevel"], cwd))?.trim() ?? cwd;
 
   // Quality commands: skip when nothing but docs/generated files changed.
   const kinds = opts.run ?? configuredKinds(top) ?? (["lint", "typecheck", "test"] as Kind[]);
@@ -82,10 +84,15 @@ export async function preflight(cwd: string, opts: { base?: string; range?: stri
   const notDetected = kinds.filter((k) => !found.commands.some((x) => x.kind === k));
 
   // Secrets in added lines only.
-  const patch = (await git(["diff", "-U0", "--no-color", "--no-ext-diff", ...c.diffArgs], top)) ?? "";
+  // The untracked list classify read is still current unless a quality command ran since (it may write files).
+  const [patchOut, untrackedOut] = await Promise.all([
+    git(["diff", "-U0", "--no-color", "--no-ext-diff", ...c.diffArgs], top),
+    c.target.mode !== "range" ? (quality.length ? git : g)(["ls-files", "--others", "--exclude-standard"], top) : null,
+  ]);
+  const patch = patchOut ?? "";
   let secrets = scanPatch(patch);
   if (c.target.mode !== "range") {
-    const untracked = ((await git(["ls-files", "--others", "--exclude-standard"], top)) ?? "").split("\n").filter(Boolean);
+    const untracked = (untrackedOut ?? "").split("\n").filter(Boolean);
     const { scanText } = await import("./scan_secrets");
     for (const f of untracked) {
       try { const t = readFileSync(join(top, f), "utf8"); if (!t.includes("\u0000")) secrets.push(...scanText(t, f)); } catch { /* unreadable */ }

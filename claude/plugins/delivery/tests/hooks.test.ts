@@ -3,7 +3,7 @@
  * End-to-end tests feed the hooks the JSON Claude Code sends on stdin, inside throwaway repos.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { classifyCommand } from "../hooks/bash_guard";
@@ -231,6 +231,34 @@ test("run.sh: passes stdin, output and exit code through bun", () => {
   writeFileSync(transcript, use("Edit", { file_path: join(dir, "src/a.ts") }));
   expect(launch([STOP], { session_id: `run-${Date.now()}`, transcript_path: transcript, cwd: dir }, env).code).toBe(2);
   expect(launch(["--check"], {}, env).out).toBe("");
+});
+
+// The per-Bash-call hooks skip run.sh (one sh fewer per call) with the same launcher logic inline in hooks.json.
+const inlineHooks = () => {
+  const j = JSON.parse(readFileSync(join(ROOT, "hooks", "hooks.json"), "utf8"));
+  return [...j.hooks.PreToolUse, ...j.hooks.PostToolUse].filter((m: { matcher: string }) => m.matcher === "Bash").map((m: { hooks: { command: string }[] }) => m.hooks[0].command);
+};
+const shell = (cmd: string, input: object, env: Record<string, string | undefined>) => {
+  const p = Bun.spawnSync(["/bin/sh", "-c", cmd], { stdin: Buffer.from(JSON.stringify(input)), env: { ...env, CLAUDE_PLUGIN_ROOT: ROOT } });
+  return { code: p.exitCode, out: p.stdout.toString(), err: p.stderr.toString() };
+};
+
+test("hooks.json inline launcher: runs the Bash hooks with bun, from PATH or ~/.bun/bin", () => {
+  const cmds = inlineHooks();
+  expect(cmds).toHaveLength(2);
+  const push = { tool_name: "Bash", tool_input: { command: "git push origin main" }, cwd: dir };
+  const viaPath = shell(cmds[0], push, { ...ENV, PATH: `${dirname(process.execPath)}:/usr/bin:/bin` });
+  expect(JSON.parse(viaPath.out).hookSpecificOutput.permissionDecision).toBe("ask");
+  const home = join(dir, "home");
+  mkdirSync(join(home, ".bun", "bin"), { recursive: true });
+  symlinkSync(process.execPath, join(home, ".bun", "bin", "bun"));
+  const viaHome = shell(cmds[0], push, { ...ENV, HOME: home, PATH: "/usr/bin:/bin" });
+  expect(JSON.parse(viaHome.out).hookSpecificOutput.permissionDecision).toBe("ask");
+});
+
+test("hooks.json inline launcher: without bun, the Bash hooks are skipped silently", () => {
+  for (const cmd of inlineHooks())
+    expect(shell(cmd, { tool_name: "Bash", tool_input: { command: "git push origin main" }, cwd: dir }, { PATH: "/usr/bin:/bin", HOME: dir })).toEqual({ code: 0, out: "", err: "" });
 });
 
 test("run.sh: without bun, gates are skipped silently and --check warns once", () => {

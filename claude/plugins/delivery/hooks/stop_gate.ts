@@ -32,6 +32,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { memoGit, type Git } from "../skills/delivery-lifecycle/scripts/classify_change";
 import { preflight, type Preflight, type Review } from "../skills/delivery-lifecycle/scripts/preflight";
 import { assistantEntries, asksToHold, globMatch, lastUserPrompt, loadConfig, parseAutonomy, realPath, reviewed, SHOW_REVIEW, skillUsed, toolUses, unshownReviews, type Autonomy, type ToolUse } from "./autonomy";
 import { repoKey } from "./bash_guard";
@@ -60,14 +61,30 @@ async function git(args: string[], cwd: string): Promise<string | null> {
   } catch { return null; } // the session's cwd was removed (a cleaned-up worktree): not a repository
 }
 
+type TrimGit = (args: string[], cwd: string) => Promise<string | null>;
+const trimmed = (g: Git): TrimGit => async (args, cwd) => (await g(args, cwd))?.trim() ?? null;
+/** `git` (trimmed output) run once per (cwd, args). */
+const memoTrimmed = (): TrimGit => memoGit(git as Git) as TrimGit;
+const ORIGIN_HEAD = ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"];
+
 /** Compare a feature branch with its default branch; otherwise look at uncommitted work. */
-async function target(cwd: string): Promise<{ base?: string }> {
-  const branch = await git(["rev-parse", "--abbrev-ref", "HEAD"], cwd);
-  const remoteHead = (await git(["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"], cwd))?.replace(/^origin\//, "");
+async function target(cwd: string, g: TrimGit = trimmed(memoGit())): Promise<{ base?: string }> {
+  // Asked together; "main" is the usual answer, so its check starts now (`g` runs it once).
+  const [branch, originHead] = await Promise.all([g(["rev-parse", "--abbrev-ref", "HEAD"], cwd), g(ORIGIN_HEAD, cwd), g(["rev-parse", "--verify", "--quiet", "main"], cwd)]);
+  const remoteHead = originHead?.replace(/^origin\//, "");
   for (const d of [remoteHead, "main", "master"].filter(Boolean) as string[]) {
-    if (branch && branch !== d && (await git(["rev-parse", "--verify", "--quiet", d], cwd))) return { base: d };
+    if (branch && branch !== d && (await g(["rev-parse", "--verify", "--quiet", d], cwd))) return { base: d };
   }
   return {};
+}
+
+/**
+ * session_context's baseBranch, with the origin/HEAD lookup `target` already made answered by `g` (the usual case).
+ * Without an origin/HEAD, baseBranch itself picks main or master.
+ */
+async function baseOf(cwd: string, configured: string | null, g: TrimGit): Promise<string> {
+  if (configured) return configured;
+  return (await g(ORIGIN_HEAD, cwd))?.replace(/^origin\//, "") || baseBranch(cwd, null);
 }
 
 /** True when the session opened a pull request (gh or a source-control tool). */
@@ -112,8 +129,8 @@ function owners(dirs: string[], trees: { path: string }[]): Set<string> {
 }
 
 /** Checked-out branches of the repository's worktrees (the main checkout first), from `git worktree list --porcelain`. */
-async function worktrees(cwd: string): Promise<{ path: string; branch: string | null }[]> {
-  const out = (await git(["worktree", "list", "--porcelain"], cwd)) ?? "";
+async function worktrees(cwd: string, g: TrimGit = git): Promise<{ path: string; branch: string | null }[]> {
+  const out = (await g(["worktree", "list", "--porcelain"], cwd)) ?? "";
   return out.split("\n\n").map((b) => ({
     path: /^worktree (.+)$/m.exec(b)?.[1] ?? "",
     branch: /^branch refs\/heads\/(.+)$/m.exec(b)?.[1] ?? null,
@@ -124,7 +141,7 @@ async function worktrees(cwd: string): Promise<{ path: string; branch: string | 
  * The commit `branch` points to on the remote, null when the remote doesn't have it, or "unknown" when it can't be
  * read in time (no SSH key, offline). GitHub repositories are read with `gh api`, whose login works when SSH doesn't.
  */
-async function remoteHead(dir: string, branch: string): Promise<string | null | "unknown"> {
+async function remoteHead(dir: string, branch: string, git: TrimGit): Promise<string | null | "unknown"> {
   const read = async (cmd: string[]) => {
     try {
       const p = Bun.spawn(cmd, { cwd: dir, stdout: "pipe", stderr: "pipe", env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } });
@@ -150,37 +167,45 @@ async function remoteHead(dir: string, branch: string): Promise<string | null | 
  * Why the policy says work should still be shipped, or null when there is nothing to ship. Looks at every
  * worktree, since work often happens in `.claude/worktrees/<branch>` while the session sits in the main checkout.
  */
-export async function unshipped(cwd: string, policy: Autonomy, uses: ToolUse[]): Promise<string | null> {
-  if (!policy.push.length || !(await git(["remote"], cwd))) return null;
-  const base = baseBranch(cwd, policy.base);
-  const here = await git(["rev-parse", "--show-toplevel"], cwd);
+export async function unshipped(cwd: string, policy: Autonomy, uses: ToolUse[], run: TrimGit = memoTrimmed()): Promise<string | null> {
+  if (!policy.push.length) return null;
+  // Independent lookups, asked together (only `remote` decides whether the rest is used).
+  const [remotes, here, list] = await Promise.all([run(["remote"], cwd), run(["rev-parse", "--show-toplevel"], cwd), worktrees(cwd, run)]);
+  if (!remotes) return null;
+  const base = await baseOf(cwd, policy.base, run);
   // Claude's own config (.claude/) is often untracked; it isn't work to ship.
-  const dirtyAt = async (dir: string) => ((await git(["status", "--porcelain"], dir)) ?? "").split("\n").some((l) => l.trim() && !/^.. "?\.claude\//.test(l));
+  const dirtyAt = async (dir: string) => ((await run(["status", "--porcelain"], dir)) ?? "").split("\n").some((l) => l.trim() && !/^.. "?\.claude\//.test(l));
   const bash = uses.filter((u) => u.name === "Bash").map((u) => String(u.input.command ?? ""));
-  const list = await worktrees(cwd);
-  const trees = list.length ? list : [{ path: here ?? cwd, branch: await git(["rev-parse", "--abbrev-ref", "HEAD"], cwd) }];
+  const trees = list.length ? list : [{ path: here ?? cwd, branch: await run(["rev-parse", "--abbrev-ref", "HEAD"], cwd) }];
   const mine = owners(touchedDirs(uses, cwd), trees);
   for (const w of trees) {
     if (!w.branch || !mine.has(w.path)) continue;
     const where = w.path === here ? "" : ` (worktree ${w.path})`;
-    const dirty = await dirtyAt(w.path);
     if (w.branch === base) {
       if (w.path !== here) continue;
-      const ahead = Number((await git(["rev-list", "--count", `origin/${base}..HEAD`], w.path)) ?? 0);
+      const [dirty, aheadOut] = await Promise.all([dirtyAt(w.path), run(["rev-list", "--count", `origin/${base}..HEAD`], w.path)]);
+      const ahead = Number(aheadOut ?? 0);
       if (dirty || ahead > 0) return `you changed files on ${base}. Move the work to a new branch matching ${policy.push.join(", ")} (keep ${base} as it was) and ship it from there`;
       continue;
     }
     if (!policy.push.some((g) => globMatch(g, w.branch!))) continue;
-    const upstream = await git(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"], w.path);
-    const tracking = upstream ? "@{u}" : (await git(["rev-parse", "--verify", "--quiet", `refs/remotes/origin/${w.branch}`], w.path)) ? `origin/${w.branch}` : null;
-    const count = async (since: string) => Number((await git(["rev-list", "--count", `${since}..HEAD`], w.path)) ?? 0);
+    // The tracking-ref check is only read without an upstream, and the origin URL only when the remote is asked,
+    // but both are cheap local reads: start them with the rest instead of after.
+    const [dirty, upstream, originRef] = await Promise.all([
+      dirtyAt(w.path),
+      run(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"], w.path),
+      run(["rev-parse", "--verify", "--quiet", `refs/remotes/origin/${w.branch}`], w.path),
+      run(["remote", "get-url", "origin"], w.path),
+    ]);
+    const tracking = upstream ? "@{u}" : originRef ? `origin/${w.branch}` : null;
+    const count = async (since: string) => Number((await run(["rev-list", "--count", `${since}..HEAD`], w.path)) ?? 0);
     let ahead = tracking ? await count(tracking) : null;
     if (ahead === null || ahead > 0) {
       // A push to a URL (`git push https://… feature/x`) leaves the tracking ref missing or stale: ask the remote
       // before nudging, and keep the local answer only when the remote can't say.
-      const remote = await remoteHead(w.path, w.branch);
+      const [remote, originBase] = await Promise.all([remoteHead(w.path, w.branch, run), run(["rev-parse", "--verify", "--quiet", `origin/${base}`], w.path)]);
       if (remote === "unknown") { if (ahead === null) continue; }
-      else ahead = await count(remote ?? ((await git(["rev-parse", "--verify", "--quiet", `origin/${base}`], w.path)) ? `origin/${base}` : base));
+      else ahead = await count(remote ?? (originBase ? `origin/${base}` : base));
     }
     if (dirty || (ahead ?? 0) > 0) return `${w.branch}${where} has ${dirty ? "uncommitted changes" : `${ahead} commit(s) not pushed`}. Commit, push it${policy.openPr ? ` and open the pull request against ${base}` : ""}`;
     if (policy.openPr && upstream && bash.some((b) => /\bgit\b[^;&|]*\bpush\b/.test(b)) && !bash.some((b) => /\bgh\s+pr\s+(create|view|list)\b/.test(b)))
@@ -196,15 +221,15 @@ const reviewStep = (base: string) => `review the branch with the \`engineering:c
  * True when a feature branch the policy ships (in any worktree) changes more than docs against the base, so a
  * session that sits in the main checkout and works in `.claude/worktrees/<branch>` still gets the review step.
  */
-async function codeOnBranches(cwd: string, policy: Autonomy, uses: ToolUse[]): Promise<boolean> {
-  const base = baseBranch(cwd, policy.base);
-  const trees = await worktrees(cwd);
+async function codeOnBranches(cwd: string, policy: Autonomy, uses: ToolUse[], run: TrimGit = memoTrimmed()): Promise<boolean> {
+  const [base, trees] = await Promise.all([baseOf(cwd, policy.base, run), worktrees(cwd, run)]);
   const mine = owners(touchedDirs(uses, cwd), trees);
   for (const w of trees) {
     if (!w.branch || w.branch === base || !mine.has(w.path) || !policy.push.some((g) => globMatch(g, w.branch!))) continue;
-    const ref = (await git(["rev-parse", "--verify", "--quiet", `origin/${base}`], w.path)) ? `origin/${base}` : base;
-    const mb = await git(["merge-base", "HEAD", ref], w.path);
-    const files = [...((mb ? await git(["diff", "--name-only", mb], w.path) : null) ?? "").split("\n"), ...((await git(["status", "--porcelain"], w.path)) ?? "").split("\n").map((l) => l.slice(3))];
+    const [originBase, status] = await Promise.all([run(["rev-parse", "--verify", "--quiet", `origin/${base}`], w.path), run(["status", "--porcelain"], w.path)]);
+    const ref = originBase ? `origin/${base}` : base;
+    const mb = await run(["merge-base", "HEAD", ref], w.path);
+    const files = [...((mb ? await run(["diff", "--name-only", mb], w.path) : null) ?? "").split("\n"), ...(status ?? "").split("\n").map((l) => l.slice(3))];
     if (files.some((f) => f.trim() && !DOCS.test(f) && !f.startsWith(".claude/"))) return true;
   }
   return false;
@@ -283,8 +308,15 @@ export async function main(): Promise<number> {
   }
   if (haveTranscript ? !sessionEdited(uses) : !(await git(["status", "--porcelain"], cwd))) return 0;
 
-  const p = await preflight(cwd, { ...(await target(cwd)), timeoutS: config.preflight?.timeoutSeconds ?? 300 });
+  // One git runner for the check: target, classify and preflight share its lookups (toplevel, refs, untracked
+  // files). The toplevel classify needs first is asked for alongside target's lookups.
+  const pre = memoGit();
+  const [t] = await Promise.all([target(cwd, trimmed(pre)), pre(["rev-parse", "--show-toplevel"], cwd)]);
+  const p = await preflight(cwd, { ...t, timeoutS: config.preflight?.timeoutSeconds ?? 300, git: pre });
   if (typeof p === "string") return 0; // not a reviewable repo state: never block on our own errors
+  // After the quality commands ran (they may write files), only the toplevel and origin/HEAD are reused.
+  const reuse = new Set(["rev-parse --show-toplevel", ORIGIN_HEAD.join(" ")]);
+  const post = memoGit(((args, dir) => (reuse.has(args.join(" ")) ? trimmed(pre) : git)(args, dir!)) as Git) as TrimGit;
   // Only security blocks at Stop (and only on a risky pattern or a configured path). Migration, performance
   // and CI concerns are deploy/merge questions: shown to the user as a note, enforced at the merge and release gates.
   const reviews = reviewsOn ? p.reviews.filter((r) => r.gate === "security" && r.strong && !skillUsed(uses, r.skill) && !state.reviewBlocks.includes(r.gate)) : [];
@@ -293,10 +325,10 @@ export async function main(): Promise<number> {
     const notes = p.reviews.filter((r) => !reviews.includes(r) && !skillUsed(uses, r.skill)).map((r) => `${r.gate}: ${r.why} → consider ${r.skill} before merging`);
     const policy = parseAutonomy(config);
     const hold = asksToHold(lastUserPrompt(transcript));
-    const why = policy && p.ok && !state.shipNudged && !hold ? await unshipped(cwd, policy, uses) : null;
+    const why = policy && p.ok && !state.shipNudged && !hold ? await unshipped(cwd, policy, uses, post) : null;
     // "session": the PR's review session reviews it after it opens, so nothing is reviewed before pushing.
     const reviewDue = !!policy?.review && p.ok && !hold && !state.reviewNudged && !reviewed(uses)
-      && (p.changed.some((f) => !DOCS.test(f)) || await codeOnBranches(cwd, policy, uses));
+      && (p.changed.some((f) => !DOCS.test(f)) || await codeOnBranches(cwd, policy, uses, post));
     const save = saveState;
     const forPr = notes.length ? `\nNotes for the PR description: ${notes.join("; ")}` : "";
     if (why && policy) {
@@ -304,13 +336,13 @@ export async function main(): Promise<number> {
       const reviewFirst = reviewDue && policy.review === "self";
       if (reviewFirst) state.reviewNudged = true;
       save();
-      process.stderr.write(shipMessage(why, policy, reviewFirst ? baseBranch(cwd, policy.base) : undefined) + forPr + "\n");
+      process.stderr.write(shipMessage(why, policy, reviewFirst ? await baseOf(cwd, policy.base, post) : undefined) + forPr + "\n");
       return 2;
     }
     if (policy && reviewDue && openedPr(uses) && !(policy.review === "session" && startedReviewSession(uses))) {
       state.reviewNudged = true;
       save();
-      process.stderr.write((policy.review === "session" ? reviewSessionMessage() : reviewMessage(baseBranch(cwd, policy.base))) + forPr + "\n");
+      process.stderr.write((policy.review === "session" ? reviewSessionMessage() : reviewMessage(await baseOf(cwd, policy.base, post))) + forPr + "\n");
       return 2;
     }
     if (notes.length) console.log(JSON.stringify({ systemMessage: `Delivery notes (not blocking): ${notes.join("; ")}` }));

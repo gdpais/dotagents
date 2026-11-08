@@ -25,8 +25,8 @@
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
-import { prRisk } from "../skills/delivery-lifecycle/scripts/pr_risk";
-import { scanPatch } from "../skills/delivery-lifecycle/scripts/scan_secrets";
+// pr_risk (with classify_change) and scan_secrets load lazily: only a commit or a `gh pr merge` needs them.
+import type { prRisk } from "../skills/delivery-lifecycle/scripts/pr_risk";
 import { approvedMerges, assessedPr, compoundBody, expandVars, realPath, explicitContext, gitGlobalsOk, globMatch, lastUserPrompt, literalVars, loadConfig, parseAutonomy, pushOutsidePolicy, segments, shellWords, toolUses, unwrapTimeout, type Autonomy, type ToolUse } from "./autonomy";
 
 /**
@@ -304,7 +304,7 @@ export function outsidePolicy(cmd: string, policy: Autonomy, cwd: string, kubeCo
  * that isn't covered.
  */
 export async function policyMerges(prs: (number | MergeCmd)[], policy: Autonomy, cwd: string, uses: ToolUse[],
-  risk: typeof prRisk = prRisk, budgetMs = 25_000): Promise<{ covered: Set<number>; why: string | null }> {
+  risk?: typeof prRisk, budgetMs = 25_000): Promise<{ covered: Set<number>; why: string | null }> {
   const covered = new Set<number>();
   let why: string | null = null;
   if (policy.merge.low === "ask" && policy.merge.medium === "ask") return { covered, why };
@@ -317,6 +317,7 @@ export async function policyMerges(prs: (number | MergeCmd)[], policy: Autonomy,
     if (verdict === "blocking") { why ??= `PR #${n}'s review is blocking (Critical or High findings): fix them first`; continue; }
     const left = deadline - Date.now();
     if (left < 2_000) { why ??= `PR #${n} couldn't be checked in time`; continue; }
+    risk ??= (await import("../skills/delivery-lifecycle/scripts/pr_risk")).prRisk;
     const r = await risk(cwd, { pr: n }, verdict as "ok" | "fix", left);
     if (typeof r === "string") { why ??= r; continue; }
     if (!r.auto) { why ??= `PR #${n} is ${r.level} risk (${r.reasons[0]}): it needs the user's approval, with evidence`; continue; }
@@ -438,7 +439,7 @@ export async function main(): Promise<number> {
       const p = Bun.spawnSync(["git", "diff", "--cached", "-U0", "--no-color", "--no-ext-diff"], { cwd });
       staged = p.exitCode === 0 ? p.stdout.toString() : null;
     } catch { /* cwd removed: nothing to scan, and the checks below still run */ }
-    const high = staged ? scanPatch(staged).filter((f) => f.confidence === "high") : [];
+    const high = staged ? (await import("../skills/delivery-lifecycle/scripts/scan_secrets")).scanPatch(staged).filter((f) => f.confidence === "high") : [];
     if (high.length) {
       console.log(decide("deny", `Staged changes contain ${high.length} likely secret(s): ${high.slice(0, 3).map((f) => `${f.rule} at ${f.file}:${f.line} (${f.masked})`).join("; ")}. Remove them (use env/config) before committing; rotate any real secret.`));
       return 0;
