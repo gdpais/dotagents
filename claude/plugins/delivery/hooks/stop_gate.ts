@@ -296,7 +296,8 @@ export async function main(): Promise<number> {
   const statePath = join(stateDir, `${(input.session_id ?? "unknown").replace(/[^\w-]/g, "")}.json`);
   let state: State = { qualityBlocks: 0, reviewBlocks: [] };
   try { state = JSON.parse(readFileSync(statePath, "utf8")); } catch { /* first stop */ }
-  const saveState = () => { try { mkdirSync(stateDir, { recursive: true }); writeFileSync(statePath, JSON.stringify(state)); } catch { /* best effort */ } };
+  // Owner-only: the state holds the quality commands' output tails.
+  const saveState = () => { try { mkdirSync(stateDir, { recursive: true, mode: 0o700 }); writeFileSync(statePath, JSON.stringify(state), { mode: 0o600 }); } catch { /* best effort */ } };
 
   // A review whose tables no reply shows: once per review, edits or not (a clean review edits nothing).
   const unshown = unshownReviews(entries).filter((k) => !(state.tablesShown ?? []).includes(k));

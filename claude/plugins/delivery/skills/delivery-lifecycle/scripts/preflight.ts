@@ -74,7 +74,8 @@ export async function treeKey(top: string, g: Git = git as Git): Promise<string 
   }
   const edited = [...new Set([...changed.split("\0"), ...untracked.split("\0")].filter(Boolean))];
   const present = edited.filter((f) => { try { return statSync(join(top, f)).isFile(); } catch { return false; } });
-  for (const f of edited) if (!present.includes(f)) files.delete(f);
+  const kept = new Set(present);
+  for (const f of edited) if (!kept.has(f)) files.delete(f);
   if (present.length) {
     try {
       const p = Bun.spawn(["git", "hash-object", "--stdin-paths"], { cwd: top, stdin: new Blob([present.join("\n") + "\n"]), stdout: "pipe", stderr: "ignore" });
