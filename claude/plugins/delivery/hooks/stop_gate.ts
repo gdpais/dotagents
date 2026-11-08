@@ -36,6 +36,7 @@ import { memoGit, type Git } from "../skills/delivery-lifecycle/scripts/classify
 import { preflight, type Preflight, type Review } from "../skills/delivery-lifecycle/scripts/preflight";
 import { assistantEntries, asksToHold, globMatch, lastUserPrompt, loadConfig, parseAutonomy, realPath, reviewed, SHOW_REVIEW, skillUsed, toolUses, unshownReviews, type Autonomy, type ToolUse } from "./autonomy";
 import { repoKey } from "./bash_guard";
+import { baseBranch } from "./session_context";
 
 export { asksToHold, lastUserPrompt, reviewed, skillUsed, toolUses };
 
@@ -78,15 +79,12 @@ async function target(cwd: string, g: TrimGit = trimmed(memoGit())): Promise<{ b
 }
 
 /**
- * session_context's baseBranch, through `g` so the origin/HEAD lookup `target` made isn't repeated. Same order:
- * the configured base, origin/HEAD, then main or master when the branch exists locally or on origin.
+ * session_context's baseBranch, with the origin/HEAD lookup `target` already made answered by `g` (the usual case).
+ * Without an origin/HEAD, baseBranch itself picks main or master.
  */
 async function baseOf(cwd: string, configured: string | null, g: TrimGit): Promise<string> {
   if (configured) return configured;
-  const remoteHead = (await g(ORIGIN_HEAD, cwd))?.replace(/^origin\//, "");
-  if (remoteHead) return remoteHead;
-  for (const b of ["main", "master"]) if ((await g(["rev-parse", "--verify", "--quiet", `refs/heads/${b}`], cwd)) !== null || (await g(["rev-parse", "--verify", "--quiet", `refs/remotes/origin/${b}`], cwd)) !== null) return b;
-  return "main";
+  return (await g(ORIGIN_HEAD, cwd))?.replace(/^origin\//, "") || baseBranch(cwd, null);
 }
 
 /** True when the session opened a pull request (gh or a source-control tool). */
