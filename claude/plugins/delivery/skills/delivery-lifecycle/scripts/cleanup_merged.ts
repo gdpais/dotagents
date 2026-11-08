@@ -57,6 +57,26 @@ export function remoteHeads(lsRemote: string): Set<string> {
   return new Set(lsRemote.split("\n").map((l) => l.split("\t")[1]?.replace(/^refs\/heads\//, "")).filter((b): b is string => !!b));
 }
 
+/**
+ * `git config -z --get-regexp` output as key → values in file order (last one wins, like
+ * `git config --get`). Values are trimmed and a value-less key reads as "", as `--get` printed them.
+ */
+export function parseConfig(z: string): Map<string, string[]> {
+  const m = new Map<string, string[]>();
+  for (const entry of z.split("\0")) {
+    if (!entry) continue;
+    const nl = entry.indexOf("\n");
+    const [k, v] = nl < 0 ? [entry, ""] : [entry.slice(0, nl), entry.slice(nl + 1).trim()];
+    m.set(k, [...(m.get(k) ?? []), v]);
+  }
+  return m;
+}
+const readConfig = (cwd: string) => parseConfig(git(["config", "-z", "--get-regexp", "^(branch\\..*\\.(remote|merge)|remote\\..*\\.fetch)$"], cwd).out);
+
+/** True when the remote's only fetch refspec maps every branch to refs/remotes/<remote>/, so a pruned fetch mirrors its branch list. */
+export const isDefaultRefspec = (fetch: string[] | undefined, remote: string) =>
+  fetch?.length === 1 && fetch[0].replace(/^\+/, "") === `refs/heads/*:refs/remotes/${remote}/*`;
+
 /** True when `inner` is `outer` or inside it. */
 export const within = (inner: string, outer: string) => { const r = relative(outer, inner); return r === "" || (!r.startsWith("..") && !isAbsolute(r)); };
 
@@ -98,18 +118,27 @@ export function cleanupMerged(cwd: string, opts: { base?: string; remote?: strin
   }
 
   // 3. Candidates: named branches, else pushed branches whose remote branch no longer exists.
-  const locals = git(["for-each-ref", "--format=%(refname:short)", "refs/heads"], cwd).out.split("\n").filter(Boolean);
+  // One for-each-ref lists the local branches and the remote-tracking refs the fetch just pruned.
+  const refs = git(["for-each-ref", "--format=%(refname)%00%(refname:short)%00%(symref)", "refs/heads", `refs/remotes/${remote}`], cwd).out.split("\n").filter(Boolean).map((l) => l.split("\0"));
+  const locals = refs.filter(([full]) => full.startsWith("refs/heads/")).map(([, s]) => s);
   let candidates: string[];
   if (opts.branches?.length) {
     candidates = opts.branches.filter((b) => locals.includes(b));
     for (const b of opts.branches) if (!locals.includes(b)) res.kept.push({ branch: b, reason: "no such local branch" });
   } else {
+    const cfg = readConfig(cwd);
     const heads = new Map<string, Set<string> | null>();
+    // The fetch above already listed <remote>'s branches when its refspec is the plain default.
+    if (isDefaultRefspec(cfg.get(`remote.${remote}.fetch`), remote)) {
+      const prefix = `refs/remotes/${remote}/`;
+      heads.set(remote, new Set(refs.filter(([full, , sym]) => full.startsWith(prefix) && !sym).map(([full]) => full.slice(prefix.length))));
+    }
     candidates = locals.filter((b) => {
       if (b === base) return false;
-      const r = git(["config", "--get", `branch.${b}.remote`], cwd).out;
-      const merge = git(["config", "--get", `branch.${b}.merge`], cwd).out.replace(/^refs\/heads\//, "");
+      const r = cfg.get(`branch.${b}.remote`)?.at(-1) ?? "";
+      const merge = (cfg.get(`branch.${b}.merge`)?.at(-1) ?? "").replace(/^refs\/heads\//, "");
       if (!r || !merge || r === ".") return false; // never pushed: not ours to judge
+      // Another remote, a URL, or a custom refspec: ask the remote itself.
       if (!heads.has(r)) { const ls = git(["ls-remote", "--heads", r], cwd); heads.set(r, ls.ok ? remoteHeads(ls.out) : null); }
       const set = heads.get(r);
       if (!set) { res.kept.push({ branch: b, reason: `couldn't list branches on ${r}` }); return false; }
