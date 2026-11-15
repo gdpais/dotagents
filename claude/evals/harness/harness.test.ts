@@ -146,3 +146,19 @@ test("autonomy nudges and scoring follow the eval's base branch and TODO id", as
   expect(nextNudge(ev, s({ started: true, pushed: ["feature/1.1-x"] }))).toBe("Open the PR.");
   expect(nextNudge(ev, s({ started: true, pushed: ["feature/1.1-x"], shipped: "feature/1.1-x" }))).toBeNull();
 });
+
+test("effort suffix: arm@level sets --effort and leaves the arm's own behaviour intact", async () => {
+  const { armEffort, plainArm, baseArm, isPlugin } = await import("./run");
+  expect(armEffort("vanilla@medium")).toBe("medium");
+  expect(armEffort("vanilla+app@high")).toBe("high");
+  expect(armEffort("vanilla")).toBeUndefined();
+  expect(armEffort("v2.3")).toBeUndefined();
+  expect(plainArm("vanilla+app@xhigh")).toBe("vanilla+app");
+  expect(baseArm("claudemd+app@max")).toBe("claudemd");
+  expect(isPlugin(plainArm("v3@low"))).toBe(true);
+});
+
+test("run rejects an arm with an unknown effort suffix before building fixtures", async () => {
+  const { main } = await import("./run");
+  expect(await main(["--out", "/nonexistent-effort-test", "--arms", "vanilla@hgih"])).toBe(2);
+});

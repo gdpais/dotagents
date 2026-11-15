@@ -16,6 +16,8 @@
  *   claudemd nothing installed; the spec's working agreement in .claude/CLAUDE.md (autonomy evals' control)
  *   <arm>+app the same arm with the spec's `autonomy.app_prompt` appended to the system prompt: the
  *            Claude desktop app's rules about pushing and confirming outward actions, which `claude -p` lacks
+ *   <arm>@<level> the same arm at that effort (low|medium|high|xhigh|max), passed as --effort on every turn;
+ *            without it the session uses the effort from the user's settings
  *
  * Autonomy evals (kind "autonomy") run several turns: the repo gets a local bare remote and a fake `gh`
  * (shims/gh, logging to gh.jsonl), and after each turn a simulated user sends the next nudge a real user
@@ -49,8 +51,11 @@ const sh = (cmd: string[], cwd?: string) => {
 
 type Any = any;
 interface Job { eval: Any; arm: string; rep: number; dir: string }
+/** `<arm>@<level>` runs the arm at that effort (--effort); the suffix is otherwise ignored. */
+export const armEffort = (arm: string) => arm.match(/@(low|medium|high|xhigh|max)$/)?.[1];
+export const plainArm = (arm: string) => arm.replace(/@(low|medium|high|xhigh|max)$/, "");
 export const isPlugin = (arm: string) => /^v\d/.test(arm);
-export const baseArm = (arm: string) => arm.split("+")[0];
+export const baseArm = (arm: string) => plainArm(arm).split("+")[0];
 
 /** Remote heads and tags as {ref: sha}. */
 export function remoteRefs(remote: string): Record<string, string> {
@@ -59,12 +64,13 @@ export function remoteRefs(remote: string): Record<string, string> {
 }
 
 function prepare(job: Job, out: string, v1Skills: string, spec: Any) {
+  const arm = plainArm(job.arm);
   const repo = join(job.dir, "repo");
   mkdirSync(job.dir, { recursive: true });
   cpSync(join(out, "fixtures", job.eval.fixture), repo, { recursive: true });
   sh(["git", "checkout", "-q", job.eval.branch], repo);
   appendFileSync(join(repo, ".git", "info", "exclude"), "\n.claude/\ntmp/\n");
-  if (job.arm === "v1") cpSync(v1Skills, join(repo, ".claude", "skills"), { recursive: true });
+  if (arm === "v1") cpSync(v1Skills, join(repo, ".claude", "skills"), { recursive: true });
   let remote: Record<string, string> | undefined;
   if (job.eval.kind === "autonomy") {
     const bare = join(job.dir, "remote.git");
@@ -78,7 +84,7 @@ function prepare(job: Job, out: string, v1Skills: string, spec: Any) {
   // The autonomy policy (plugin arms from v3) and the CLAUDE.md agreement apply to every eval, as they would in a real project.
   // v2.x plugins ignore the policy, so their earlier results stay comparable.
   mkdirSync(join(repo, ".claude"), { recursive: true });
-  if (isPlugin(job.arm) && !/^v2/.test(job.arm)) writeFileSync(join(repo, ".claude", "delivery.json"), JSON.stringify(spec.autonomy.delivery_json, null, 2));
+  if (isPlugin(arm) && !/^v2/.test(arm)) writeFileSync(join(repo, ".claude", "delivery.json"), JSON.stringify(spec.autonomy.delivery_json, null, 2));
   // The agreement names the base branch; autonomy evals on main-based repos get it with their own base.
   if (baseArm(job.arm) === "claudemd") writeFileSync(join(repo, ".claude", "CLAUDE.md"), job.eval.base ? spec.autonomy.claude_md.replaceAll("master", job.eval.base) : spec.autonomy.claude_md);
   const initial = {
@@ -116,15 +122,17 @@ async function turn(args: string[], repo: string, dir: string, env: Record<strin
 async function runJob(job: Job, out: string, spec: Any, opts: { budget: number; model?: string; v1Skills: string; timeoutMin: number; prevPlugin?: string }) {
   if (existsSync(join(job.dir, "meta.json"))) return "skipped";
   const repo = prepare(job, out, opts.v1Skills, spec);
+  const arm = plainArm(job.arm), effort = armEffort(job.arm);
   const auto = job.eval.kind === "autonomy";
-  const prompt = job.arm === "ondemand" ? job.eval.ondemand_prompt ?? job.eval.prompt : job.eval.prompt;
+  const prompt = arm === "ondemand" ? job.eval.ondemand_prompt ?? job.eval.prompt : job.eval.prompt;
   const common = ["--output-format", "stream-json", "--verbose",
     "--permission-mode", "acceptEdits", "--max-budget-usd", String(opts.budget),
     "--allowedTools", ...(auto ? AUTONOMY_ALLOWED : ALLOWED), "--disallowedTools", ...(auto ? AUTONOMY_DENIED : DENIED)];
   if (opts.model) common.push("--model", opts.model);
-  if (isPlugin(job.arm)) common.push("--plugin-dir", baseArm(job.arm) === "v2.3" && opts.prevPlugin ? opts.prevPlugin : PLUGIN);
-  if (job.arm.endsWith("+app")) common.push("--append-system-prompt", spec.autonomy.app_prompt);
-  if (job.arm === "ondemand") common.push("--add-dir", join(PLUGIN, "skills"));
+  if (effort) common.push("--effort", effort);
+  if (isPlugin(arm)) common.push("--plugin-dir", baseArm(job.arm) === "v2.3" && opts.prevPlugin ? opts.prevPlugin : PLUGIN);
+  if (arm.endsWith("+app")) common.push("--append-system-prompt", spec.autonomy.app_prompt);
+  if (arm === "ondemand") common.push("--add-dir", join(PLUGIN, "skills"));
   // Autonomy evals: the fake gh comes first on PATH, the real one has no credentials, and git may only use local paths.
   const env = auto ? { ...process.env, PATH: `${join(HERE, "shims")}:${process.env.PATH}`, GH_SHIM_LOG: join(job.dir, "gh.jsonl"), GH_SHIM_BASE: job.eval.base ?? "master", GH_SHIM_REPO: repoName(job.eval),
     GIT_SHIM_REAL: REAL_GIT, GIT_SHIM_BARE: join(job.dir, "remote.git"), GIT_SHIM_URL: fakeOrigin(job.eval),
@@ -155,11 +163,13 @@ export async function main(argv = process.argv.slice(2)) {
   if (!o.out) { console.error("--out DIR is required"); return 2; }
   const out = resolve(o.out);
   const spec = JSON.parse(readFileSync(join(HERE, "evals-v2.json"), "utf8"));
+  const arms = (o.arms ?? "vanilla,v1,v2").split(",");
+  const badEffort = arms.find((a) => a.includes("@") && !armEffort(a));
+  if (badEffort) { console.error(`unknown effort in arm ${badEffort} (use @low|medium|high|xhigh|max)`); return 2; }
   if (!existsSync(join(out, "fixtures"))) {
     const r = sh(["sh", join(HERE, "make_fixtures.sh"), out]);
     if (r.code) { console.error(r.err || r.out); return 2; }
   }
-  const arms = (o.arms ?? "vanilla,v1,v2").split(",");
   if (arms.includes("v1") && !o["v1-skills"]) { console.error("--v1-skills DIR is required for the v1 arm"); return 2; }
   const ids = o.evals ? o.evals.split(",") : spec.evals.map((e: { id: string }) => e.id);
   const reps = Number(o.reps ?? 3);
