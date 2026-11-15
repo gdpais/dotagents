@@ -162,3 +162,39 @@ test("run rejects an arm with an unknown effort suffix before building fixtures"
   const { main } = await import("./run");
   expect(await main(["--out", "/nonexistent-effort-test", "--arms", "vanilla@hgih"])).toBe(2);
 });
+
+test("global arms: the mirror HOME holds only the arm's CLAUDE.md and links everything else", async () => {
+  const { globalMd, mirrorHome, GLOBAL_ARMS } = await import("./run");
+  const { existsSync, lstatSync, mkdtempSync, mkdirSync, readFileSync, readlinkSync, writeFileSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const { tmpdir } = await import("node:os");
+  const root = mkdtempSync(join(tmpdir(), "gmd-"));
+  mkdirSync(join(root, "claude", "global"), { recursive: true });
+  writeFileSync(join(root, "claude", "global", "AGENTS.md"), "# min\n\n");
+  writeFileSync(join(root, "claude", "CLAUDE.md"), "# karp\n");
+  expect(globalMd("g-none", root)).toBeNull();
+  expect(globalMd("g-min", root)).toBe("# min\n");
+  expect(globalMd("g-karp", root)).toBe("# min\n\n# karp\n");
+  expect(Object.keys(GLOBAL_ARMS)).toEqual(["g-none", "g-min", "g-karp"]);
+
+  const real = join(root, "home");
+  mkdirSync(join(real, ".claude", "plugins"), { recursive: true });
+  mkdirSync(join(real, ".claude", "projects"), { recursive: true });
+  mkdirSync(join(real, ".bun"));
+  writeFileSync(join(real, ".claude", "CLAUDE.md"), "user's real file");
+  writeFileSync(join(real, ".claude", "settings.json"), "{}");
+  writeFileSync(join(real, ".claude.json"), "{\"a\":1}");
+  const m = mirrorHome(real, join(root, "m-min"), "# min\n");
+  expect(readFileSync(join(m, ".claude", "CLAUDE.md"), "utf8")).toBe("# min\n");
+  expect(lstatSync(join(m, ".claude", "CLAUDE.md")).isSymbolicLink()).toBe(false);
+  expect(readlinkSync(join(m, ".claude", "settings.json"))).toBe(join(real, ".claude", "settings.json"));
+  expect(readlinkSync(join(m, ".claude", "plugins"))).toBe(join(real, ".claude", "plugins"));
+  expect(readlinkSync(join(m, ".bun"))).toBe(join(real, ".bun"));
+  expect(existsSync(join(m, ".claude", "projects"))).toBe(false);
+  expect(lstatSync(join(m, ".claude.json")).isSymbolicLink()).toBe(false);
+  const n = mirrorHome(real, join(root, "m-none"), null);
+  expect(existsSync(join(n, ".claude", "CLAUDE.md"))).toBe(false);
+  expect(mirrorHome(real, n, "ignored")).toBe(n); // idempotent: an existing mirror is kept
+  expect(existsSync(join(n, ".claude", "CLAUDE.md"))).toBe(false);
+  expect(readFileSync(join(real, ".claude", "CLAUDE.md"), "utf8")).toBe("user's real file");
+});

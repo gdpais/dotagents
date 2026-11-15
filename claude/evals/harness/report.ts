@@ -61,7 +61,7 @@ export async function main(argv = process.argv.slice(2)) {
       rows.push({ ...s, grade: g, quality: quality(s, g) });
     }
   }
-  const ORDER = ["vanilla", "claudemd", "ondemand", "v1", "v2", "v2.1", "v2.2", "v2.3", "v3", "vanilla+app", "claudemd+app", "v3+app"];
+  const ORDER = ["vanilla", "claudemd", "ondemand", "v1", "v2", "v2.1", "v2.2", "v2.3", "v3", "vanilla+app", "claudemd+app", "v3+app", "g-none", "g-min", "g-karp"];
   const arms = [...new Set(rows.map((r) => r.arm))].sort((a, b) => ORDER.indexOf(a) - ORDER.indexOf(b));
   const ref = o.ref ?? "vanilla";
   const hiddenOf = (r: Any) => (r.hidden ? (r.hidden.passed ? 1 : 0) : NaN);
