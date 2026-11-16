@@ -19,4 +19,4 @@ Loaded in every project (symlinked as `~/.claude/CLAUDE.md`). Project files, hoo
 - Prefer Anthropic's built-in skills and plugins; build custom ones only for a specific need.
 
 ## Decisions
-- Ask only at real decisions: cost, irreversible or outward actions, open questions. Do the mechanical steps a project policy already approves, then report them.
+- Ask only at real decisions: cost, irreversible or outward actions, open questions (real uncertainty about what I want counts). Do the mechanical steps a project policy already approves, then report them.
