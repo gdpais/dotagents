@@ -1,0 +1,167 @@
+# Global instruction files (2026-11-15)
+
+Question: does a global `~/.claude/CLAUDE.md` help, and is the Karpathy-style guide (`claude/CLAUDE.md`) worth adding to it?
+
+81 headless Claude Code sessions (Opus 5.5, effort high, the user's normal settings and 13 installed plugins including `delivery`). 9 implementation tasks (the 4 original ones and the 5-task hard tier, all scored by hidden tests) × 3 arms × 3 repetitions, interleaved. Session cost **$22.25** (API-equivalent), plus $0.55 for the isolation probes. Review tasks were left out: they would have added about $15 and the question is about implementation behaviour.
+
+| Arm | Global CLAUDE.md |
+|---|---|
+| `g-none` | none |
+| `g-min` | `claude/global/CLAUDE.md` (22 lines) |
+| `g-karp` | `claude/global/CLAUDE.md` followed by `claude/CLAUDE.md` (81 lines) |
+
+**Isolation.** Each arm runs under a mirror HOME (`mirrorHome` in `harness/run.ts`): every entry of `~` and `~/.claude` is symlinked except the user's `CLAUDE.md` and per-session state, `.claude.json` is copied, and the arm's own `~/.claude/CLAUDE.md` is written there. The real `~/.claude` is never written. (`CLAUDE_CONFIG_DIR` was ruled out: the live OAuth token is in the macOS keychain, and a custom config dir looks up a different keychain entry.) A one-turn probe per arm confirmed the same model, output style, 13 plugins and 59 skills, and that the model saw exactly the intended file: none; `claude/global/CLAUDE.md` (Language, Tooling, Done means proven, Cost, Decisions); that file plus Karpathy sections 1–4.
+
+## Per arm
+
+Means over evals of per-eval means (27 runs per arm).
+
+| Arm | Hidden tests passed | Quality (hidden + suite) | Cost $/task | Turns | Duration s | Nudges | Ended asking |
+|---|---|---|---|---|---|---|---|
+| g-none | 27/27 | 100% | 0.268 | 9.7 | 27.5 | 0.00 | 0% |
+| g-min | 27/27 | 100% | 0.279 | 11.3 | 28.2 | 0.00 | 0% |
+| g-karp | 27/27 | 100% | 0.278 | 10.3 | 26.8 | 0.00 | 0% |
+
+## Differences vs g-none (95% bootstrap CI, stratified by eval)
+
+| Arm | Δ quality | Δ cost $/task | Δ turns | Δ duration s | Δ nudges |
+|---|---|---|---|---|---|
+| g-min | 0 pts [0, 0] | +0.011 [−0.003, +0.025] (+4%) | +1.6 [+0.1, +2.9] | +0.7 [−1.8, +3.1] | 0 [0, 0] |
+| g-karp | 0 pts [0, 0] | +0.010 [−0.003, +0.023] (+4%) | +0.6 [−0.9, +2.0] | −0.7 [−3.1, +1.5] | 0 [0, 0] |
+
+Per eval, the only sizeable difference was `hard-rename` with `g-min`: 23.7 turns vs 10.0 (cost $0.37 vs $0.28), from making the rename with several small commands and re-running the checks; same outcome. Full per-eval table: `bun harness/report.ts --out DIR --ref g-none`.
+
+## Findings
+
+1. **No quality effect is measurable here.** Every arm passed every hidden test, including the five trap tasks. Opus 5.5 is at the ceiling on these tasks, so a global file cannot show a gain; it also caused no loss.
+2. **The cost is small and not significant.** Both files add about +$0.01 per task (+4%, CI −1% to +9%), in line with the extra context they put on every turn. Adding Karpathy on top of the minimal file cost nothing more (−$0.001).
+3. **Karpathy's "if uncertain, ask" did not cause extra stops.** No arm ended a run asking the user or needed a nudge.
+4. **The minimal file's rules barely showed in these runs.** Final replies named a check result in 1/27 (none), 2/27 (minimal) and 2/27 (Karpathy) runs. The minimal file's other rules (reply language, bun, cost, when to ask) aren't exercised by these tasks, so this eval can't value them.
+
+## Verdict
+
+Keep the minimal file and don't adopt Karpathy, in whole or in part. On 81 hidden-test runs neither file changed outcomes; both cost about 4% more per task (not significant). Karpathy adds nothing over the minimal file. Its four sections restate what Opus already does here: it ran the tests, kept the changes small and didn't over-build. That matches the controlled study (arXiv:2602.11988): generic context files bring no success gain at a cost. The minimal file earns its place through what this harness doesn't measure (PT-PT replies, `bun`, the proof-before-done habit, when to ask). At about $0.01 per task, that's cheap insurance, provided it stays short. Re-test if a cheaper model becomes the default, where instructions have more room to help.
+
+## Limits
+
+- Ceiling effect: on these 9 tasks at 100%, only cost, turns and time can differ. A harder or more ambiguous task set (or Sonnet/Haiku) would be needed to show a quality effect.
+- 3 repetitions per cell; small fixtures; one model at effort high.
+- Fixtures, mirror HOMEs and runs are not stored (G-33). Reproduce with `bun harness/pipeline.ts --out DIR --md FILE --arms g-none,g-min,g-karp --ref g-none --reps 3 --evals impl-typo,impl-discount,impl-remember,impl-bugfix,hard-rename,hard-format,hard-search,hard-migration,hard-idempotent`.
+
+# Targeted A/B: does Karpathy do what it claims? (2026-11-16)
+
+The run above hit a ceiling and measured nothing Karpathy claims. This A/B targets its claims directly: surgical changes, simplicity, surfacing ambiguity, and cleaning up only its own orphans.
+
+**Arms.** `g-min` (`claude/global/CLAUDE.md`) vs `g-karp` (that file followed by `claude/CLAUDE.md`), current master versions, same mirror-HOME isolation as above. Reference arm: `g-min`.
+
+**Tasks** (tier `targeted` in `harness/evals-v2.json`, fixture `tidy` in `make_fixtures.sh`, hidden tests in `harness/hidden/`). Nine small requests, each next to a bait. Each hidden test was checked to fail on the untouched fixture and pass with a reference fix; each metric was checked to flag a bait-taking fix.
+
+| Eval | Bait | Request |
+|---|---|---|
+| `scope-spend` | scope | fix an off-by-one; dead `legacySpend` in old style and a loose `==` next to it |
+| `scope-pages` | scope | floor → ceil; a "TODO: this is a mess" loop right below |
+| `scope-names` | scope | double space in `fullName`; snake_case `get_initials` with odd concat beside it |
+| `simple-money` | abstraction | add `formatCents(1234) → "€12.34"`; invites currency/locale options |
+| `simple-retry` | abstraction | retry once; invites retry counts, backoff, options objects |
+| `ambig-dedupe` | ambiguity | "removes duplicate contacts": same email, or same name and email? |
+| `ambig-title` | ambiguity | "limit post titles to 60 characters": reject or truncate? |
+| `orphan-pad` | orphans | swap `leftPad` for `padStart`; its import becomes unused (remove), `debounce` import was already unused (keep), `pad.ts` still used elsewhere (keep) |
+| `orphan-xml` | orphans | remove `exportXml`; `escapeXml` and the `xmlHeader` import become unused (remove), `oldCsvTotals` was already dead (keep) |
+
+**Metrics per run** (`harness/targeted.ts`, `score.ts`, `grade.ts`, `report.ts`):
+- hidden-test pass; cost, turns, duration (from the session's result events)
+- lines changed in non-test files (added + deleted, new files included)
+- non-test files touched outside the eval's declared set
+- pre-existing code touched: declared snippets (dead code, odd style) no longer present verbatim
+- own orphans left: declared patterns the change made unused that still match (orphan tasks only)
+- extra API: new exported names not asked for, plus parameters beyond what the requested function needs
+- unrequested additions: a blind grader (Sonnet, 3 votes, median) counts them in the diff with a fixed rubric (`targetedPrompt`): options, abstractions, speculative error handling, adjacent refactors or style changes, removed pre-existing code, extra features. Tests, a short doc comment and removing the change's own orphans don't count.
+- ambiguity surfaced (ambiguous tasks only): the run asked (its first reply ends with a question, so the scripted user had to say "Go ahead."), or the grader (majority of 3) labels it `asked` or `stated` an explicit assumption, versus `silent`.
+
+**Design.** 9 tasks × 2 arms × 3 repetitions = 54 headless sessions, interleaved, Opus 5.5 with the user's settings; differences `g-karp − g-min` with 95% bootstrap CIs stratified by eval (`report.ts --ref g-min`). Budget cap $30.
+
+## Decision rule (committed before running)
+
+**Adopt** Karpathy globally (append `claude/CLAUDE.md` to `claude/global/CLAUDE.md`) only if both hold:
+1. At least one of the seven scope, simplicity or asking metrics improves with a 95% CI that excludes zero: src lines changed, files outside the set, pre-existing code touched, own orphans left, extra API, unrequested additions (lower is better), ambiguity surfaced (higher is better).
+2. The hidden-test pass rate doesn't drop (point estimate of Δ ≥ 0) and cost per task rises by less than 10% (point estimate of Δ cost < +10% of `g-min`'s mean).
+
+**Otherwise** keep it as a repo-only file (`claude/CLAUDE.md`), as now.
+
+Note: "any one of seven" gives a family-wise false-positive rate well above 5% if there is no real effect; a single marginal win should be read with that in mind, and the per-eval table shows whether it comes from one task.
+
+## Results
+
+54 sessions (Opus 5.5, the user's settings and plugins), run 2026-11-16. Session cost **$12.64**, grading $2.87; with the two smoke runs that checked the pipeline, **$18.45 in total** (cap $30).
+
+**Verdict: don't adopt. Keep Karpathy as a repo-only file.** No scope, simplicity or asking metric improved with a CI that excludes zero, so rule 1 fails. Rule 2 fails on the point estimate too (pass rate −3.7 pts), although that difference is a harness artifact (see below). Cost rose +2.6%, within the 10% limit.
+
+### Per arm (mean over evals of per-eval means; 27 runs per arm)
+
+| Metric | g-min | g-karp | Δ g-karp − g-min [95% CI] |
+|---|---|---|---|
+| Hidden tests pass | 96% (26/27) | 93% (25/27) | −3.7 pts [−14.8, +7.4] |
+| Lines changed (src) | 6.19 | 5.26 | −0.93 [−1.96, +0.11] |
+| Files outside set | 0 | 0 | 0 [0, 0] |
+| Pre-existing code touched | 0 | 0 | 0 [0, 0] |
+| Own orphans left (orphan tasks) | 0 | 0 | 0 [0, 0] |
+| Extra exports + params | 0.07 | 0.07 | 0 [−0.07, +0.07] |
+| Unrequested additions (grader) | 0.22 | 0.19 | −0.04 [−0.19, +0.15] |
+| Ambiguity surfaced, asked or stated (ambiguous tasks) | 100% | 100% | 0 pts [0, 0] |
+| Asked rather than stated (rule) | 17% | 50% | +33 pts [−17, +83] |
+| Cost $/task | 0.231 | 0.237 | +0.006 [−0.004, +0.017] (+2.6%) |
+| Turns | 8.74 | 8.93 | +0.19 [−0.59, +0.93] |
+| Duration s | 21.2 | 21.3 | +0.04 [−1.76, +1.81] |
+
+Per eval (three runs each):
+
+| Eval | Arm | Hidden | Src lines | Unrequested (grader) | Ambiguity |
+|---|---|---|---|---|---|
+| scope-spend, scope-pages, scope-names | both | 9/9 | 2 in every run | 0 | n/a |
+| simple-money | g-min | 3/3 | 9 7 9 | 2 0 2 | n/a |
+| simple-money | g-karp | 3/3 | 7 6 7 | 1 1 1 | n/a |
+| simple-retry | g-min | 3/3 | 7 7 7 | 0 0 0 | n/a |
+| simple-retry | g-karp | 3/3 | 6 6 6 | 0 0 0 | n/a |
+| ambig-dedupe | g-min | 3/3 | 11 11 14 | 0 0 0 | stated, stated, stated |
+| ambig-dedupe | g-karp | 2/3 | 11 12 0 | 1 0 0 | asked, stated, asked |
+| ambig-title | g-min | 2/3 | 0 10 9 | 0 1 1 | asked, stated, asked |
+| ambig-title | g-karp | 2/3 | 6 0 9 | 1 0 0 | asked, asked, asked |
+| orphan-pad | both | 6/6 | 3 in every run | 0 | n/a |
+| orphan-xml | both | 6/6 | 13 in every run | 0 | n/a |
+
+Files outside the set, pre-existing code touched, orphans left and extra API were 0 in every run of both arms, apart from one extra parameter or export on `ambig-title` (2 runs per arm).
+
+### Findings
+
+1. **The baits weren't taken, with or without Karpathy.** In all 54 runs, nobody touched the dead code, the odd style or the "clean me up" loop, nobody edited files outside the expected set, every orphan the change created was removed, and every pre-existing unused import or function was kept. Opus 5.5 already behaves the way sections 2 and 3 ask, so the file has no room to help here.
+2. **Simplicity: a slight, non-significant lean.** Karpathy runs changed about one line fewer per task (−0.93, CI −1.96 to +0.11), mostly on the two abstraction tasks. On `simple-money`, both arms added negative-number handling nobody asked for; `g-min` twice also rounded non-integer input. Example (r1 of each arm):
+
+   ```ts
+   // g-min: 2 unrequested additions (sign handling, Math.round)
+   /** 1234 -> "€12.34", -5 -> "-€0.05" */
+   export function formatCents(cents: number): string {
+     const sign = cents < 0 ? "-" : "";
+     const abs = Math.abs(Math.round(cents));
+     const euros = Math.floor(abs / 100);
+     const rest = String(abs % 100).padStart(2, "0");
+     return `${sign}€${euros}.${rest}`;
+   }
+
+   // g-karp: 1 unrequested addition (sign handling)
+   /** 1234 -> "€12.34" */
+   export function formatCents(cents: number): string {
+     const sign = cents < 0 ? "-" : "";
+     const abs = Math.abs(cents);
+     return `${sign}€${Math.floor(abs / 100)}.${String(abs % 100).padStart(2, "0")}`;
+   }
+   ```
+   Neither arm added options, currency or locale parameters, or retry configuration.
+3. **Ambiguity was always surfaced; Karpathy shifts it from stating to asking.** Every ambiguous run either asked or stated its reading, in both arms. With Karpathy, 5 of 6 runs stopped to ask, against 3 of 6 for `g-min`; on `ambig-dedupe`, `g-min` always picked "same email" and said so. That shift is not significant at n=6, and under `claude -p` asking costs a round trip.
+4. **The pass-rate drop is an artifact.** All three hidden-test failures (`ambig-dedupe` g-karp r2, `ambig-title` g-karp r3 and g-min r1) are runs that asked and stopped without changing code. Their question sat mid-reply ("what should happen to a title longer than 60 characters?" followed by options), so the scripted user's "Go ahead." didn't fire. If those runs count as asked-and-waiting, both arms pass every task. `implementNudge` now detects a question anywhere in the reply (`asksAnywhere`, tested) for future runs; these results were not re-run.
+
+### Limits
+
+- 3 repetitions per cell, 9 small tasks, one model. Narrow CIs at zero on most metrics come from no variation: every run of both arms behaved the same.
+- The baits are fairly obvious. A larger repo, longer requests or a cheaper model (Sonnet, Haiku) could show an effect that Opus 5.5 leaves no room for here.
+- The grader is a model (Sonnet, 3 votes); on `simple-money` `g-min` its counts were 2, 0, 2 for three similar diffs, so single-run counts are noisy.
+- Reproduce: `bun harness/pipeline.ts --out DIR --md FILE --arms g-min,g-karp --ref g-min --reps 3 --evals scope-spend,scope-pages,scope-names,simple-money,simple-retry,ambig-dedupe,ambig-title,orphan-pad,orphan-xml`.

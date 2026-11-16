@@ -12,6 +12,7 @@ import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, realpathSyn
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
+import { targetedMetrics, workDiff } from "./targeted";
 
 const HERE = import.meta.dir;
 type Any = any;
@@ -23,6 +24,7 @@ const sh = (cmd: string[], cwd?: string) => {
 
 export function parseTranscript(text: string) {
   const tools: { name: string; input: Any }[] = [];
+  const texts: string[] = [];
   let result: Any = null, init: Any = null, stopFeedback = 0, hookBlocks = 0;
   const results: Any[] = [];
   for (const line of text.split("\n")) {
@@ -31,13 +33,16 @@ export function parseTranscript(text: string) {
     try { e = JSON.parse(line); } catch { continue; }
     if (e.type === "system" && e.subtype === "init") init = e;
     if (e.type === "result") { result = e; results.push(e); }
-    if (e.type === "assistant") for (const c of e.message?.content ?? []) if (c.type === "tool_use") tools.push({ name: c.name, input: c.input ?? {} });
+    if (e.type === "assistant") for (const c of e.message?.content ?? []) {
+      if (c.type === "tool_use") tools.push({ name: c.name, input: c.input ?? {} });
+      if (c.type === "text" && String(c.text ?? "").trim()) texts.push(String(c.text));
+    }
     if (e.type === "user" && JSON.stringify(e.message?.content ?? "").includes("Stop hook feedback")) stopFeedback++;
     if (e.type === "system" && e.subtype === "hook_response" && e.hook_event === "Stop" && e.exit_code === 2) hookBlocks++;
   }
   const skills = tools.filter((t) => t.name === "Skill").map((t) => String(t.input.skill ?? ""));
   const bash = tools.filter((t) => t.name === "Bash").map((t) => String(t.input.command ?? ""));
-  return { tools, skills, bash, result, results, init, stopFeedback, hookBlocks };
+  return { tools, texts, skills, bash, result, results, init, stopFeedback, hookBlocks };
 }
 
 // ------------------------------------------------------------------ autonomy evals
@@ -90,15 +95,24 @@ export function nextNudge(ev: Any, s: ReturnType<typeof autonomyState>): string 
   return "Open the PR.";
 }
 
-/** True when the reply ends by asking the user something (its last paragraph has a question). */
+/** True when the reply ends by asking the user something: its last paragraph has a question ("Which do you want? Once you choose, I'll…"). */
 export function asksUser(text: string): boolean {
   const last = text.trim().split(/\n\s*\n/).pop() ?? "";
-  return /\?\s*(\*\*)?\s*$/m.test(last) || /\?["'”)]?\s*$/.test(text.trim());
+  // A question mark ending a sentence; `??` and `?.` in code don't count.
+  return /(?<!\?)\?(?![?.\w])/.test(last.replace(/`[^`]*`/g, "")) || /\?["'”)]?\s*$/.test(text.trim());
 }
 
-/** Implementation evals: "Go ahead." when the session stopped to ask while the hidden test still fails. */
+/** True when the reply asks the user anything, in any paragraph (code spans and `??`/`?.` operators don't count). */
+export function asksAnywhere(text: string): boolean {
+  return /(?<!\?)\?(?![?.\w])/.test(text.replace(/```[\s\S]*?```/g, "").replace(/`[^`]*`/g, ""));
+}
+
+/**
+ * Implementation evals: "Go ahead." when the session stopped while the hidden test still fails and its reply asks
+ * anything. The question may sit mid-reply ("what should happen…? 1. … 2. …"), so the whole reply is checked.
+ */
 export function implementNudge(runDir: string, ev: Any, lastText: string): string | null {
-  if (!ev.hidden || !asksUser(lastText)) return null;
+  if (!ev.hidden || !asksAnywhere(lastText)) return null;
   const initial = JSON.parse(readFileSync(join(runDir, "initial.json"), "utf8"));
   return withWorkLocation(runDir, ev, initial, (_d, _w, h) => h?.passed) ? null : "Go ahead.";
 }
@@ -256,6 +270,12 @@ function scoreAt(runDir: string, ev: Any, repo: string, knownHidden: Any) {
   const results = t.results.length ? t.results : [r];
   const sum = (k: string) => results.reduce((a: number, x: Any) => a + (x?.[k] ?? 0), 0);
 
+  // Targeted evals: scope, simplicity, orphan and asking metrics, plus the diff and replies for the blind grader.
+  const targeted = ev.targeted ? withCopy(repo, (d) => ({
+    ...targetedMetrics(d, initial.head, ev, { firstReply: String(t.results[0]?.result ?? ""), nudges: (meta.nudges ?? []).length, asks: asksUser }),
+    diff: workDiff(d, initial.head),
+    replies: t.texts.join("\n\n---\n\n").slice(-8000),
+  })) : undefined;
   const testsChanged = changed.filter((f) => /(^|\/)tests?\//.test(f) || /\.(test|spec)\./.test(f));
   const securityReviewed = t.skills.some((s) => /security-review|appsec/.test(s));
   return {
@@ -276,7 +296,7 @@ function scoreAt(runDir: string, ev: Any, repo: string, knownHidden: Any) {
     ran_tests: t.bash.some((b) => /\b(bun|npm|pnpm|yarn)\s+(run\s+)?test\b|\bpytest\b|\bgo test\b|preflight/.test(b)),
     security_reviewed: securityReviewed,
     changed_files: changed, tests_changed: testsChanged.length,
-    checks, hidden,
+    checks, hidden, targeted,
     final_text: String(r.result ?? ""),
   };
 }

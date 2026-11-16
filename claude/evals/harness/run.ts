@@ -14,6 +14,9 @@
  *            on autonomy evals the repo also gets the spec's `.claude/delivery.json` policy
  *   ondemand nothing installed; uses the eval's `ondemand_prompt`, which names the skill file or script
  *   claudemd nothing installed; the spec's working agreement in .claude/CLAUDE.md (autonomy evals' control)
+ *   g-none, g-min, g-karp  global-instructions arms: the user's normal setup (settings, plugins, hooks, auth) under a
+ *            mirror HOME whose ~/.claude/CLAUDE.md is only the arm's file(s) (GLOBAL_ARMS); g-none has none. The real
+ *            ~/.claude is never written: the mirror symlinks every entry except CLAUDE.md and per-session state.
  *   <arm>+app the same arm with the spec's `autonomy.app_prompt` appended to the system prompt: the
  *            Claude desktop app's rules about pushing and confirming outward actions, which `claude -p` lacks
  *   <arm>@<level> the same arm at that effort (low|medium|high|xhigh|max), passed as --effort on every turn;
@@ -28,7 +31,8 @@
  * initial.json, meta.json}. Finished runs are skipped, so the command resumes.
  * Prompts are passed verbatim: nothing tells the agent which skills exist.
  */
-import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync, appendFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { autonomyState, implementNudge, nextNudge } from "./score";
@@ -43,6 +47,46 @@ export const ALLOWED = [
     "xargs", "time", "hyperfine", "du", "touch", "basename", "dirname", "realpath", "tee", "date", "sleep"].map((c) => `Bash(${c} *)`),
 ];
 export const DENIED = ["Bash(git push *)", "Bash(gh *)", "Bash(curl *)", "Bash(wget *)", "WebFetch", "WebSearch"];
+
+/** Global-instructions arms: the files (repo-relative) concatenated into the mirror HOME's ~/.claude/CLAUDE.md. */
+export const GLOBAL_ARMS: Record<string, string[]> = {
+  "g-none": [],
+  "g-min": ["claude/global/CLAUDE.md"],
+  "g-karp": ["claude/global/CLAUDE.md", "claude/CLAUDE.md"],
+};
+const REPO_ROOT = resolve(HERE, "..", "..", "..");
+/** Per-session state kept out of the mirror, so runs neither read the user's history and memory nor write into it. */
+const MIRROR_SKIP = new Set(["CLAUDE.md", "projects", "sessions", "session-env", "shell-snapshots", "file-history", "history.jsonl",
+  "todos", "telemetry", ".cc-writes", "backups", "plans", "stats-cache.json"]);
+
+/** The arm's global CLAUDE.md content, or null when it has none. */
+export function globalMd(arm: string, root = REPO_ROOT): string | null {
+  const files = GLOBAL_ARMS[arm];
+  if (!files?.length) return null;
+  return files.map((f) => readFileSync(join(root, f), "utf8").trimEnd()).join("\n\n") + "\n";
+}
+
+/**
+ * Build a HOME that behaves like `real` but whose ~/.claude/CLAUDE.md is `md` (absent when null). Every top-level entry
+ * of `real` and of `real/.claude` is symlinked (auth, settings, plugins, hooks, tool caches), except the user's
+ * CLAUDE.md and per-session state; `.claude.json` is copied so concurrent writes never reach the user's file.
+ * Idempotent: an existing mirror is left as it is.
+ */
+export function mirrorHome(real: string, target: string, md: string | null) {
+  if (existsSync(join(target, ".claude"))) return target;
+  mkdirSync(join(target, ".claude"), { recursive: true });
+  for (const name of readdirSync(real)) {
+    if (name === ".claude" || name === ".claude.json") continue;
+    symlinkSync(join(real, name), join(target, name));
+  }
+  if (existsSync(join(real, ".claude.json"))) cpSync(join(real, ".claude.json"), join(target, ".claude.json"));
+  const claudeDir = join(real, ".claude");
+  if (existsSync(claudeDir)) for (const name of readdirSync(claudeDir)) {
+    if (!MIRROR_SKIP.has(name)) symlinkSync(join(claudeDir, name), join(target, ".claude", name));
+  }
+  if (md !== null) writeFileSync(join(target, ".claude", "CLAUDE.md"), md);
+  return target;
+}
 
 const sh = (cmd: string[], cwd?: string) => {
   const p = Bun.spawnSync(cmd, { cwd, stdout: "pipe", stderr: "pipe" });
@@ -121,6 +165,11 @@ async function turn(args: string[], repo: string, dir: string, env: Record<strin
 
 async function runJob(job: Job, out: string, spec: Any, opts: { budget: number; model?: string; v1Skills: string; timeoutMin: number; prevPlugin?: string }) {
   if (existsSync(join(job.dir, "meta.json"))) return "skipped";
+  const home = plainArm(job.arm) in GLOBAL_ARMS ? mirrorHome(homedir(), join(out, "homes", plainArm(job.arm)), globalMd(plainArm(job.arm))) : undefined;
+  return runJobIn(job, out, spec, opts, home);
+}
+
+async function runJobIn(job: Job, out: string, spec: Any, opts: { budget: number; model?: string; v1Skills: string; timeoutMin: number; prevPlugin?: string }, home?: string) {
   const repo = prepare(job, out, opts.v1Skills, spec);
   const arm = plainArm(job.arm), effort = armEffort(job.arm);
   const auto = job.eval.kind === "autonomy";
@@ -136,7 +185,8 @@ async function runJob(job: Job, out: string, spec: Any, opts: { budget: number; 
   // Autonomy evals: the fake gh comes first on PATH, the real one has no credentials, and git may only use local paths.
   const env = auto ? { ...process.env, PATH: `${join(HERE, "shims")}:${process.env.PATH}`, GH_SHIM_LOG: join(job.dir, "gh.jsonl"), GH_SHIM_BASE: job.eval.base ?? "master", GH_SHIM_REPO: repoName(job.eval),
     GIT_SHIM_REAL: REAL_GIT, GIT_SHIM_BARE: join(job.dir, "remote.git"), GIT_SHIM_URL: fakeOrigin(job.eval),
-    GH_CONFIG_DIR: join(job.dir, "gh-config"), GH_TOKEN: "", GITHUB_TOKEN: "", GIT_ALLOW_PROTOCOL: "file", GIT_TERMINAL_PROMPT: "0" } : process.env;
+    GH_CONFIG_DIR: join(job.dir, "gh-config"), GH_TOKEN: "", GITHUB_TOKEN: "", GIT_ALLOW_PROTOCOL: "file", GIT_TERMINAL_PROMPT: "0" } : { ...process.env };
+  if (home) env.HOME = home;
   const started = Date.now();
   let r = await turn(["claude", "-p", prompt, ...common], repo, job.dir, env, opts.timeoutMin);
   const nudges: { after_turn: number; text: string }[] = [];
