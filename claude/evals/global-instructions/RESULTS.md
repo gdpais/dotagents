@@ -163,5 +163,5 @@ Files outside the set, pre-existing code touched, orphans left and extra API wer
 
 - 3 repetitions per cell, 9 small tasks, one model. Narrow CIs at zero on most metrics come from no variation: every run of both arms behaved the same.
 - The baits are fairly obvious. A larger repo, longer requests or a cheaper model (Sonnet, Haiku) could show an effect that Opus 5.5 leaves no room for here.
-- The grader is a model (Sonnet, 3 votes); its counts on `simple-money` varied between votes (2, 0, 2 for the same diff family).
+- The grader is a model (Sonnet, 3 votes); on `simple-money` `g-min` its counts were 2, 0, 2 for three similar diffs, so single-run counts are noisy.
 - Reproduce: `bun harness/pipeline.ts --out DIR --md FILE --arms g-min,g-karp --ref g-min --reps 3 --evals scope-spend,scope-pages,scope-names,simple-money,simple-retry,ambig-dedupe,ambig-title,orphan-pad,orphan-xml`.
