@@ -224,3 +224,9 @@ test("asksUser: a question anywhere in the last paragraph, not code operators", 
   expect(asksUser("Is it ok?\n\nFixed it with `a ?? b` and `x?.y`; tests pass.")).toBe(false);
   expect(asksUser("Fixed. All 3 tests pass.")).toBe(false);
 });
+
+test("asksAnywhere: a question mid-reply counts, code does not", async () => {
+  const { asksAnywhere } = await import("./score");
+  expect(asksAnywhere("I need one decision: what should happen to a long title?\n\n1. Reject.\n2. Cut.\n\nI'll add a test.")).toBe(true);
+  expect(asksAnywhere("Fixed with `a ?? b`.\n\n```ts\nconst x = y?.z ?? 1;\n```\nTests pass.")).toBe(false);
+});

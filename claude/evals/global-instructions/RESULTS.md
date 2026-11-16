@@ -89,3 +89,79 @@ The run above hit a ceiling and measured nothing Karpathy claims. This A/B targe
 **Otherwise** keep it as a repo-only file (`claude/CLAUDE.md`), as now.
 
 Note: "any one of seven" gives a family-wise false-positive rate well above 5% if there is no real effect; a single marginal win should be read with that in mind, and the per-eval table shows whether it comes from one task.
+
+## Results
+
+54 sessions (Opus 5.5, the user's settings and plugins), run 2026-11-16. Session cost **$12.64**, grading $2.87; with the two smoke runs that checked the pipeline, **$18.45 in total** (cap $30).
+
+**Verdict: don't adopt. Keep Karpathy as a repo-only file.** No scope, simplicity or asking metric improved with a CI that excludes zero, so rule 1 fails. Rule 2 fails on the point estimate too (pass rate −3.7 pts), although that difference is a harness artifact (see below). Cost rose +2.6%, within the 10% limit.
+
+### Per arm (mean over evals of per-eval means; 27 runs per arm)
+
+| Metric | g-min | g-karp | Δ g-karp − g-min [95% CI] |
+|---|---|---|---|
+| Hidden tests pass | 96% (26/27) | 93% (25/27) | −3.7 pts [−14.8, +7.4] |
+| Lines changed (src) | 6.19 | 5.26 | −0.93 [−1.96, +0.11] |
+| Files outside set | 0 | 0 | 0 [0, 0] |
+| Pre-existing code touched | 0 | 0 | 0 [0, 0] |
+| Own orphans left (orphan tasks) | 0 | 0 | 0 [0, 0] |
+| Extra exports + params | 0.07 | 0.07 | 0 [−0.07, +0.07] |
+| Unrequested additions (grader) | 0.22 | 0.19 | −0.04 [−0.19, +0.15] |
+| Ambiguity surfaced, asked or stated (ambiguous tasks) | 100% | 100% | 0 pts [0, 0] |
+| Asked rather than stated (rule) | 17% | 50% | +33 pts [−17, +83] |
+| Cost $/task | 0.231 | 0.237 | +0.006 [−0.004, +0.017] (+2.6%) |
+| Turns | 8.74 | 8.93 | +0.19 [−0.59, +0.93] |
+| Duration s | 21.2 | 21.3 | +0.04 [−1.76, +1.81] |
+
+Per eval (three runs each):
+
+| Eval | Arm | Hidden | Src lines | Unrequested (grader) | Ambiguity |
+|---|---|---|---|---|---|
+| scope-spend, scope-pages, scope-names | both | 9/9 | 2 in every run | 0 | n/a |
+| simple-money | g-min | 3/3 | 9 7 9 | 2 0 2 | n/a |
+| simple-money | g-karp | 3/3 | 7 6 7 | 1 1 1 | n/a |
+| simple-retry | g-min | 3/3 | 7 7 7 | 0 0 0 | n/a |
+| simple-retry | g-karp | 3/3 | 6 6 6 | 0 0 0 | n/a |
+| ambig-dedupe | g-min | 3/3 | 11 11 14 | 0 0 0 | stated, stated, stated |
+| ambig-dedupe | g-karp | 2/3 | 11 12 0 | 1 0 0 | asked, stated, asked |
+| ambig-title | g-min | 2/3 | 0 10 9 | 0 1 1 | asked, stated, asked |
+| ambig-title | g-karp | 2/3 | 6 0 9 | 1 0 0 | asked, asked, asked |
+| orphan-pad | both | 6/6 | 3 in every run | 0 | n/a |
+| orphan-xml | both | 6/6 | 13 in every run | 0 | n/a |
+
+Files outside the set, pre-existing code touched, orphans left and extra API were 0 in every run of both arms, apart from one extra parameter or export on `ambig-title` (2 runs per arm).
+
+### Findings
+
+1. **The baits weren't taken, with or without Karpathy.** In all 54 runs, nobody touched the dead code, the odd style or the "clean me up" loop, nobody edited files outside the expected set, every orphan the change created was removed, and every pre-existing unused import or function was kept. Opus 5.5 already behaves the way sections 2 and 3 ask, so the file has no room to help here.
+2. **Simplicity: a slight, non-significant lean.** Karpathy runs changed about one line fewer per task (−0.93, CI −1.96 to +0.11), mostly on the two abstraction tasks. On `simple-money`, both arms added negative-number handling nobody asked for; `g-min` twice also rounded non-integer input. Example (r1 of each arm):
+
+   ```ts
+   // g-min: 2 unrequested additions (sign handling, Math.round)
+   /** 1234 -> "€12.34", -5 -> "-€0.05" */
+   export function formatCents(cents: number): string {
+     const sign = cents < 0 ? "-" : "";
+     const abs = Math.abs(Math.round(cents));
+     const euros = Math.floor(abs / 100);
+     const rest = String(abs % 100).padStart(2, "0");
+     return `${sign}€${euros}.${rest}`;
+   }
+
+   // g-karp: 1 unrequested addition (sign handling)
+   /** 1234 -> "€12.34" */
+   export function formatCents(cents: number): string {
+     const sign = cents < 0 ? "-" : "";
+     const abs = Math.abs(cents);
+     return `${sign}€${Math.floor(abs / 100)}.${String(abs % 100).padStart(2, "0")}`;
+   }
+   ```
+   Neither arm added options, currency or locale parameters, or retry configuration.
+3. **Ambiguity was always surfaced; Karpathy shifts it from stating to asking.** Every ambiguous run either asked or stated its reading, in both arms. With Karpathy, 5 of 6 runs stopped to ask, against 3 of 6 for `g-min`; on `ambig-dedupe`, `g-min` always picked "same email" and said so. That shift is not significant at n=6, and under `claude -p` asking costs a round trip.
+4. **The pass-rate drop is an artifact.** All three hidden-test failures (`ambig-dedupe` g-karp r2, `ambig-title` g-karp r3 and g-min r1) are runs that asked and stopped without changing code. Their question sat mid-reply ("what should happen to a title longer than 60 characters?" followed by options), so the scripted user's "Go ahead." didn't fire. If those runs count as asked-and-waiting, both arms pass every task. `implementNudge` now detects a question anywhere in the reply (`asksAnywhere`, tested) for future runs; these results were not re-run.
+
+### Limits
+
+- 3 repetitions per cell, 9 small tasks, one model. Narrow CIs at zero on most metrics come from no variation: every run of both arms behaved the same.
+- The baits are fairly obvious. A larger repo, longer requests or a cheaper model (Sonnet, Haiku) could show an effect that Opus 5.5 leaves no room for here.
+- The grader is a model (Sonnet, 3 votes); its counts on `simple-money` varied between votes (2, 0, 2 for the same diff family).
+- Reproduce: `bun harness/pipeline.ts --out DIR --md FILE --arms g-min,g-karp --ref g-min --reps 3 --evals scope-spend,scope-pages,scope-names,simple-money,simple-retry,ambig-dedupe,ambig-title,orphan-pad,orphan-xml`.

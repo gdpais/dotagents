@@ -102,9 +102,17 @@ export function asksUser(text: string): boolean {
   return /(?<!\?)\?(?![?.\w])/.test(last.replace(/`[^`]*`/g, "")) || /\?["'”)]?\s*$/.test(text.trim());
 }
 
-/** Implementation evals: "Go ahead." when the session stopped to ask while the hidden test still fails. */
+/** True when the reply asks the user anything, in any paragraph (code spans and `??`/`?.` operators don't count). */
+export function asksAnywhere(text: string): boolean {
+  return /(?<!\?)\?(?![?.\w])/.test(text.replace(/```[\s\S]*?```/g, "").replace(/`[^`]*`/g, ""));
+}
+
+/**
+ * Implementation evals: "Go ahead." when the session stopped while the hidden test still fails and its reply asks
+ * anything. The question may sit mid-reply ("what should happen…? 1. … 2. …"), so the whole reply is checked.
+ */
 export function implementNudge(runDir: string, ev: Any, lastText: string): string | null {
-  if (!ev.hidden || !asksUser(lastText)) return null;
+  if (!ev.hidden || !asksAnywhere(lastText)) return null;
   const initial = JSON.parse(readFileSync(join(runDir, "initial.json"), "utf8"));
   return withWorkLocation(runDir, ev, initial, (_d, _w, h) => h?.passed) ? null : "Go ahead.";
 }
