@@ -95,10 +95,11 @@ export function nextNudge(ev: Any, s: ReturnType<typeof autonomyState>): string 
   return "Open the PR.";
 }
 
-/** True when the reply ends by asking the user something (its last paragraph has a question). */
+/** True when the reply ends by asking the user something: its last paragraph has a question ("Which do you want? Once you choose, I'll…"). */
 export function asksUser(text: string): boolean {
   const last = text.trim().split(/\n\s*\n/).pop() ?? "";
-  return /\?\s*(\*\*)?\s*$/m.test(last) || /\?["'”)]?\s*$/.test(text.trim());
+  // A question mark ending a sentence; `??` and `?.` in code don't count.
+  return /(?<!\?)\?(?![?.\w])/.test(last.replace(/`[^`]*`/g, "")) || /\?["'”)]?\s*$/.test(text.trim());
 }
 
 /** Implementation evals: "Go ahead." when the session stopped to ask while the hidden test still fails. */

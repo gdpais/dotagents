@@ -58,7 +58,8 @@ async function grade(dir: string, ev: any, model: string, votes: number) {
   return { model, votes: ok.length, cost_usd: ok.reduce((s, r) => s + (r.cost_usd ?? 0), 0), verdicts, passed: verdicts.filter((v) => v.pass).length, total: verdicts.length };
 }
 
-const NO_TOOLS = ["--disallowedTools", "Bash", "Read", "Edit", "Write", "Glob", "Grep", "Agent", "Task", "WebFetch", "WebSearch", "Skill"];
+/** A bare grader: no tools, settings, plugins, MCP or slash commands (about $0.01 per vote instead of $0.14). */
+const LEAN = ["--tools", "", "--setting-sources", "", "--strict-mcp-config", "--disable-slash-commands"];
 
 /** Targeted evals: blind count of unrequested additions and, on ambiguous tasks, asked / stated / silent. */
 async function gradeTargeted(dir: string, ev: any, model: string, votes: number) {
@@ -67,7 +68,7 @@ async function gradeTargeted(dir: string, ev: any, model: string, votes: number)
   const once = async () => {
     const cwd = mkdtempSync(join(tmpdir(), "grader-"));
     for (let attempt = 1; attempt <= 2; attempt++) {
-      const p = Bun.spawn(["claude", "-p", prompt, "--model", model, "--output-format", "json", ...NO_TOOLS], { cwd, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+      const p = Bun.spawn(["claude", "-p", prompt, "--model", model, "--output-format", "json", ...LEAN], { cwd, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
       const [out] = await Promise.all([new Response(p.stdout).text(), p.exited]);
       let res: any = {};
       try { res = JSON.parse(out); } catch { /* retry */ }

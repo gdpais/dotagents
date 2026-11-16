@@ -216,3 +216,11 @@ test("targeted: exported names, parameter counts and grader votes", async () => 
   expect(c.ambiguity).toBe("asked");
   expect(combineTargeted([v(0, "asked"), v(0, "stated"), v(0, "silent")]).ambiguity).toBe("silent");
 });
+
+test("asksUser: a question anywhere in the last paragraph, not code operators", async () => {
+  const { asksUser } = await import("./score");
+  expect(asksUser("Two readings.\n\nWhich do you want? Once you choose, I'll add a test.")).toBe(true);
+  expect(asksUser("Done. Should I also push?")).toBe(true);
+  expect(asksUser("Is it ok?\n\nFixed it with `a ?? b` and `x?.y`; tests pass.")).toBe(false);
+  expect(asksUser("Fixed. All 3 tests pass.")).toBe(false);
+});
