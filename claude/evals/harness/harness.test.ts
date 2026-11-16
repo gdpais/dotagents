@@ -198,3 +198,35 @@ test("global arms: the mirror HOME holds only the arm's CLAUDE.md and links ever
   expect(existsSync(join(n, ".claude", "CLAUDE.md"))).toBe(false);
   expect(readFileSync(join(real, ".claude", "CLAUDE.md"), "utf8")).toBe("user's real file");
 });
+
+test("targeted: exported names, parameter counts and grader votes", async () => {
+  const { exportedNames, paramCount, parseTargeted, combineTargeted, isTestFile } = await import("./targeted");
+  expect(exportedNames("export function a() {}\nexport const b = 1;\nexport interface C {}\nexport { d, e as f };\nfunction g() {}").sort()).toEqual(["C", "a", "b", "d", "f"]);
+  expect(paramCount("export function formatCents(cents: number): string {", "formatCents")).toBe(1);
+  expect(paramCount("export function formatCents(cents: number, cur: Cur = \"EUR\", o: { a: number; b: string } = { a: 1, b: \"x\" }) {", "formatCents")).toBe(3);
+  expect(paramCount("export const getUser = async (f: (u: string) => Promise<unknown>, id: string,) => f(id);", "getUser")).toBe(2);
+  expect(paramCount("export function noop() {}", "noop")).toBe(0);
+  expect(paramCount("nothing here", "x")).toBeNull();
+  expect(isTestFile("tests/a.ts") && isTestFile("src/a.test.ts") && !isTestFile("src/a.ts")).toBe(true);
+  expect(parseTargeted('x {"unrequested": ["a"], "ambiguity": "stated"} y')!.unrequested).toEqual(["a"]);
+  expect(parseTargeted('{"unrequested": "a", "ambiguity": "stated"}')).toBeNull();
+  const v = (n: number, a: string) => ({ unrequested: Array(n).fill("x"), ambiguity: a, evidence: "" });
+  const c = combineTargeted([v(3, "asked"), v(0, "silent"), v(1, "asked")]);
+  expect(c.unrequested).toBe(1);
+  expect(c.ambiguity).toBe("asked");
+  expect(combineTargeted([v(0, "asked"), v(0, "stated"), v(0, "silent")]).ambiguity).toBe("silent");
+});
+
+test("asksUser: a question anywhere in the last paragraph, not code operators", async () => {
+  const { asksUser } = await import("./score");
+  expect(asksUser("Two readings.\n\nWhich do you want? Once you choose, I'll add a test.")).toBe(true);
+  expect(asksUser("Done. Should I also push?")).toBe(true);
+  expect(asksUser("Is it ok?\n\nFixed it with `a ?? b` and `x?.y`; tests pass.")).toBe(false);
+  expect(asksUser("Fixed. All 3 tests pass.")).toBe(false);
+});
+
+test("asksAnywhere: a question mid-reply counts, code does not", async () => {
+  const { asksAnywhere } = await import("./score");
+  expect(asksAnywhere("I need one decision: what should happen to a long title?\n\n1. Reject.\n2. Cut.\n\nI'll add a test.")).toBe(true);
+  expect(asksAnywhere("Fixed with `a ?? b`.\n\n```ts\nconst x = y?.z ?? 1;\n```\nTests pass.")).toBe(false);
+});

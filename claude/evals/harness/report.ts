@@ -107,6 +107,56 @@ export async function main(argv = process.argv.slice(2)) {
       lines.push(`| ${a} | ${f(q[0] * 100, 0)} pts [${f(q[1] * 100, 0)}, ${f(q[2] * 100, 0)}] | ${f(h[0] * 100, 0)} pts [${f(h[1] * 100, 0)}, ${f(h[2] * 100, 0)}] | ${f(c[0])} [${f(c[1])}, ${f(c[2])}] | ${f(t[0], 1)} [${f(t[1], 1)}, ${f(t[2], 1)}] | ${f(d[0], 0)} [${f(d[1], 0)}, ${f(d[2], 0)}] | ${f(n[0], 2)} [${f(n[1], 2)}, ${f(n[2], 2)}] |`);
     }
   }
+  const tRows = rows.filter((r) => r.targeted);
+  if (tRows.length) {
+    // Targeted evals: each metric is averaged over the evals it applies to (per-eval means, then their mean).
+    const T: { key: string; label: string; of: (r: Any) => number; on: (r: Any) => boolean; pctFmt?: boolean }[] = [
+      { key: "hidden", label: "Hidden tests pass", of: (r) => (r.hidden?.passed ? 1 : 0), on: () => true, pctFmt: true },
+      { key: "src_lines", label: "Lines changed (src)", of: (r) => r.targeted.src_lines, on: () => true },
+      { key: "files_outside", label: "Files outside set", of: (r) => r.targeted.files_outside.length, on: () => true },
+      { key: "preserve_touched", label: "Pre-existing code touched", of: (r) => r.targeted.preserve_touched, on: (r) => r.targeted.bait !== "ambiguity" },
+      { key: "orphans_left", label: "Own orphans left", of: (r) => r.targeted.orphans_left, on: (r) => r.targeted.bait === "orphans" },
+      { key: "extra_api", label: "Extra exports + params", of: (r) => r.targeted.extra_exports.length + r.targeted.extra_params, on: () => true },
+      { key: "unrequested", label: "Unrequested additions (grader)", of: (r) => r.grade?.unrequested ?? NaN, on: (r) => Number.isFinite(r.grade?.unrequested) },
+      { key: "surfaced", label: "Ambiguity surfaced (asked or stated)", of: (r) => (r.targeted.asked_rule || ["asked", "stated"].includes(r.grade?.ambiguity) ? 1 : 0), on: (r) => r.targeted.bait === "ambiguity", pctFmt: true },
+      { key: "asked", label: "Asked (rule)", of: (r) => (r.targeted.asked_rule ? 1 : 0), on: (r) => r.targeted.bait === "ambiguity", pctFmt: true },
+      { key: "cost", label: "Cost $/task", of: (r) => r.cost_usd ?? 0, on: () => true },
+      { key: "turns", label: "Turns", of: (r) => r.turns ?? 0, on: () => true },
+      { key: "duration", label: "Duration s", of: (r) => r.duration_s ?? 0, on: () => true },
+    ];
+    const tBy = (arm: string, m: (typeof T)[number]) => {
+      const out = new Map<string, number[]>();
+      for (const r of tRows.filter((x) => x.arm === arm && m.on(x))) { if (!out.has(r.eval)) out.set(r.eval, []); out.get(r.eval)!.push(m.of(r)); }
+      return out;
+    };
+    const tArms = arms.filter((a) => tRows.some((r) => r.arm === a));
+    const fmt = (m: (typeof T)[number], x: number) => (m.pctFmt ? pct(x) : f(x, m.key === "cost" ? 3 : 2));
+    lines.push("", "## Targeted evals: scope, simplicity, orphans, ambiguity", "", `| Metric | ${tArms.join(" | ")} |`, `|---|${tArms.map(() => "---").join("|")}|`);
+    const tSummary: Any = {};
+    for (const m of T) {
+      const vals = tArms.map((a) => mean([...tBy(a, m).values()].map(mean)));
+      tArms.forEach((a, i) => ((tSummary[a] ??= {})[m.key] = vals[i]));
+      lines.push(`| ${m.label} | ${vals.map((v) => fmt(m, v)).join(" | ")} |`);
+    }
+    if (tArms.includes(ref)) for (const a of tArms.filter((x) => x !== ref)) {
+      lines.push("", `Targeted evals, ${a} − ${ref} (95% bootstrap CI, stratified by eval; a CI that excludes 0 is marked *):`, "", "| Metric | Δ | 95% CI |", "|---|---|---|");
+      for (const m of T) {
+        const d = diffCI(tBy(ref, m), tBy(a, m));
+        const scale = m.pctFmt ? 100 : 1, unit = m.pctFmt ? " pts" : "";
+        const sig = d[1] > 0 || d[2] < 0 ? " *" : "";
+        (tSummary[a].vsRef ??= {})[m.key] = d;
+        lines.push(`| ${m.label} | ${f(d[0] * scale, m.key === "cost" ? 3 : 2)}${unit}${sig} | [${f(d[1] * scale, m.key === "cost" ? 3 : 2)}, ${f(d[2] * scale, m.key === "cost" ? 3 : 2)}] |`);
+      }
+    }
+    armSummary.targeted = tSummary;
+    lines.push("", "| Eval | Arm | Hidden | Src lines | Outside set | Pre-existing touched | Orphans left | Extra API | Unrequested (grader) | Ambiguity |", "|---|---|---|---|---|---|---|---|---|---|");
+    for (const ev of spec.evals.filter((e: Any) => e.targeted)) for (const a of tArms) {
+      const rs = tRows.filter((r) => r.eval === ev.id && r.arm === a);
+      if (!rs.length) continue;
+      const list = (k: (r: Any) => string | number) => rs.map(k).join(" ");
+      lines.push(`| ${ev.id} | ${a} | ${rs.filter((r) => r.hidden?.passed).length}/${rs.length} | ${list((r) => r.targeted.src_lines)} | ${list((r) => r.targeted.files_outside.length)} | ${list((r) => r.targeted.preserve_touched)} | ${list((r) => r.targeted.orphans_left)} | ${list((r) => r.targeted.extra_exports.length + r.targeted.extra_params)} | ${list((r) => r.grade?.unrequested ?? "–")} | ${ev.targeted.ambiguity ? list((r) => (r.targeted.asked_rule ? "asked*" : r.grade?.ambiguity ?? "–")) : "n/a"} |`);
+    }
+  }
   lines.push("", "## Per eval", "", "| Eval | Arm | n | Quality mean (sd) | Hidden tests pass | Checks pass | Cost $ mean (sd) | Turns | Tests changed | Notes |", "|---|---|---|---|---|---|---|---|---|---|");
   const perEval: Any = {};
   for (const ev of spec.evals) for (const a of arms) {
