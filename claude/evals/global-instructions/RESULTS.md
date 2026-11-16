@@ -7,10 +7,12 @@ Question: does a global `~/.claude/CLAUDE.md` help, and is the Karpathy-style gu
 | Arm | Global CLAUDE.md |
 |---|---|
 | `g-none` | none |
-| `g-min` | `claude/global/AGENTS.md` (22 lines) |
-| `g-karp` | `claude/global/AGENTS.md` followed by `claude/CLAUDE.md` (81 lines) |
+| `g-min` | `claude/global/CLAUDE.md` (22 lines) |
+| `g-karp` | `claude/global/CLAUDE.md` followed by `claude/CLAUDE.md` (81 lines) |
 
-**Isolation.** Each arm runs under a mirror HOME (`mirrorHome` in `harness/run.ts`): every entry of `~` and `~/.claude` is symlinked except the user's `CLAUDE.md` and per-session state, `.claude.json` is copied, and the arm's own `~/.claude/CLAUDE.md` is written there. The real `~/.claude` is never written. (`CLAUDE_CONFIG_DIR` was ruled out: the live OAuth token is in the macOS keychain, and a custom config dir looks up a different keychain entry.) A one-turn probe per arm confirmed the same model, output style, 13 plugins and 59 skills, and that the model saw exactly the intended file: none; `AGENTS.md` (Language, Tooling, Done means proven, Cost, Decisions); `AGENTS.md` plus Karpathy sections 1–4.
+**Files measured.** The run used the versions at commit f17e788: the minimal file was then named `claude/global/AGENTS.md`, and `claude/CLAUDE.md` still had the "state a brief plan" block. Since then (PR #22) the minimal file was renamed to `claude/global/CLAUDE.md` and got one clause added to Decisions, and the plan block was removed from `claude/CLAUDE.md`. The edits are small, so the verdict should still hold, but the new versions were not run.
+
+**Isolation.** Each arm runs under a mirror HOME (`mirrorHome` in `harness/run.ts`): every entry of `~` and `~/.claude` is symlinked except the user's `CLAUDE.md` and per-session state, `.claude.json` is copied, and the arm's own `~/.claude/CLAUDE.md` is written there. The real `~/.claude` is never written. (`CLAUDE_CONFIG_DIR` was ruled out: the live OAuth token is in the macOS keychain, and a custom config dir looks up a different keychain entry.) A one-turn probe per arm confirmed the same model, output style, 13 plugins and 59 skills, and that the model saw exactly the intended file: none; the minimal file (Language, Tooling, Done means proven, Cost, Decisions); the minimal file plus Karpathy sections 1–4.
 
 ## Per arm
 

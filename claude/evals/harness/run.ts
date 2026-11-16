@@ -51,8 +51,8 @@ export const DENIED = ["Bash(git push *)", "Bash(gh *)", "Bash(curl *)", "Bash(w
 /** Global-instructions arms: the files (repo-relative) concatenated into the mirror HOME's ~/.claude/CLAUDE.md. */
 export const GLOBAL_ARMS: Record<string, string[]> = {
   "g-none": [],
-  "g-min": ["claude/global/AGENTS.md"],
-  "g-karp": ["claude/global/AGENTS.md", "claude/CLAUDE.md"],
+  "g-min": ["claude/global/CLAUDE.md"],
+  "g-karp": ["claude/global/CLAUDE.md", "claude/CLAUDE.md"],
 };
 const REPO_ROOT = resolve(HERE, "..", "..", "..");
 /** Per-session state kept out of the mirror, so runs neither read the user's history and memory nor write into it. */
