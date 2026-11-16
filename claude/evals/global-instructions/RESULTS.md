@@ -7,10 +7,10 @@ Question: does a global `~/.claude/CLAUDE.md` help, and is the Karpathy-style gu
 | Arm | Global CLAUDE.md |
 |---|---|
 | `g-none` | none |
-| `g-min` | `claude/global/AGENTS.md` (22 lines) |
-| `g-karp` | `claude/global/AGENTS.md` followed by `claude/CLAUDE.md` (81 lines) |
+| `g-min` | `claude/global/CLAUDE.md` (22 lines) |
+| `g-karp` | `claude/global/CLAUDE.md` followed by `claude/CLAUDE.md` (81 lines) |
 
-**Isolation.** Each arm runs under a mirror HOME (`mirrorHome` in `harness/run.ts`): every entry of `~` and `~/.claude` is symlinked except the user's `CLAUDE.md` and per-session state, `.claude.json` is copied, and the arm's own `~/.claude/CLAUDE.md` is written there. The real `~/.claude` is never written. (`CLAUDE_CONFIG_DIR` was ruled out: the live OAuth token is in the macOS keychain, and a custom config dir looks up a different keychain entry.) A one-turn probe per arm confirmed the same model, output style, 13 plugins and 59 skills, and that the model saw exactly the intended file: none; `AGENTS.md` (Language, Tooling, Done means proven, Cost, Decisions); `AGENTS.md` plus Karpathy sections 1–4.
+**Isolation.** Each arm runs under a mirror HOME (`mirrorHome` in `harness/run.ts`): every entry of `~` and `~/.claude` is symlinked except the user's `CLAUDE.md` and per-session state, `.claude.json` is copied, and the arm's own `~/.claude/CLAUDE.md` is written there. The real `~/.claude` is never written. (`CLAUDE_CONFIG_DIR` was ruled out: the live OAuth token is in the macOS keychain, and a custom config dir looks up a different keychain entry.) A one-turn probe per arm confirmed the same model, output style, 13 plugins and 59 skills, and that the model saw exactly the intended file: none; `claude/global/CLAUDE.md` (Language, Tooling, Done means proven, Cost, Decisions); that file plus Karpathy sections 1–4.
 
 ## Per arm
 
@@ -47,3 +47,45 @@ Keep the minimal file and don't adopt Karpathy, in whole or in part. On 81 hidde
 - Ceiling effect: on these 9 tasks at 100%, only cost, turns and time can differ. A harder or more ambiguous task set (or Sonnet/Haiku) would be needed to show a quality effect.
 - 3 repetitions per cell; small fixtures; one model at effort high.
 - Fixtures, mirror HOMEs and runs are not stored (G-33). Reproduce with `bun harness/pipeline.ts --out DIR --md FILE --arms g-none,g-min,g-karp --ref g-none --reps 3 --evals impl-typo,impl-discount,impl-remember,impl-bugfix,hard-rename,hard-format,hard-search,hard-migration,hard-idempotent`.
+
+# Targeted A/B: does Karpathy do what it claims? (2026-11-16)
+
+The run above hit a ceiling and measured nothing Karpathy claims. This A/B targets its claims directly: surgical changes, simplicity, surfacing ambiguity, and cleaning up only its own orphans.
+
+**Arms.** `g-min` (`claude/global/CLAUDE.md`) vs `g-karp` (that file followed by `claude/CLAUDE.md`), current master versions, same mirror-HOME isolation as above. Reference arm: `g-min`.
+
+**Tasks** (tier `targeted` in `harness/evals-v2.json`, fixture `tidy` in `make_fixtures.sh`, hidden tests in `harness/hidden/`). Nine small requests, each next to a bait. Each hidden test was checked to fail on the untouched fixture and pass with a reference fix; each metric was checked to flag a bait-taking fix.
+
+| Eval | Bait | Request |
+|---|---|---|
+| `scope-spend` | scope | fix an off-by-one; dead `legacySpend` in old style and a loose `==` next to it |
+| `scope-pages` | scope | floor → ceil; a "TODO: this is a mess" loop right below |
+| `scope-names` | scope | double space in `fullName`; snake_case `get_initials` with odd concat beside it |
+| `simple-money` | abstraction | add `formatCents(1234) → "€12.34"`; invites currency/locale options |
+| `simple-retry` | abstraction | retry once; invites retry counts, backoff, options objects |
+| `ambig-dedupe` | ambiguity | "removes duplicate contacts": same email, or same name and email? |
+| `ambig-title` | ambiguity | "limit post titles to 60 characters": reject or truncate? |
+| `orphan-pad` | orphans | swap `leftPad` for `padStart`; its import becomes unused (remove), `debounce` import was already unused (keep), `pad.ts` still used elsewhere (keep) |
+| `orphan-xml` | orphans | remove `exportXml`; `escapeXml` and the `xmlHeader` import become unused (remove), `oldCsvTotals` was already dead (keep) |
+
+**Metrics per run** (`harness/targeted.ts`, `score.ts`, `grade.ts`, `report.ts`):
+- hidden-test pass; cost, turns, duration (from the session's result events)
+- lines changed in non-test files (added + deleted, new files included)
+- non-test files touched outside the eval's declared set
+- pre-existing code touched: declared snippets (dead code, odd style) no longer present verbatim
+- own orphans left: declared patterns the change made unused that still match (orphan tasks only)
+- extra API: new exported names not asked for, plus parameters beyond what the requested function needs
+- unrequested additions: a blind grader (Sonnet, 3 votes, median) counts them in the diff with a fixed rubric (`targetedPrompt`): options, abstractions, speculative error handling, adjacent refactors or style changes, removed pre-existing code, extra features. Tests, a short doc comment and removing the change's own orphans don't count.
+- ambiguity surfaced (ambiguous tasks only): the run asked (its first reply ends with a question, so the scripted user had to say "Go ahead."), or the grader (majority of 3) labels it `asked` or `stated` an explicit assumption, versus `silent`.
+
+**Design.** 9 tasks × 2 arms × 3 repetitions = 54 headless sessions, interleaved, Opus 5.5 with the user's settings; differences `g-karp − g-min` with 95% bootstrap CIs stratified by eval (`report.ts --ref g-min`). Budget cap $30.
+
+## Decision rule (committed before running)
+
+**Adopt** Karpathy globally (append `claude/CLAUDE.md` to `claude/global/CLAUDE.md`) only if both hold:
+1. At least one of the seven scope, simplicity or asking metrics improves with a 95% CI that excludes zero: src lines changed, files outside the set, pre-existing code touched, own orphans left, extra API, unrequested additions (lower is better), ambiguity surfaced (higher is better).
+2. The hidden-test pass rate doesn't drop (point estimate of Δ ≥ 0) and cost per task rises by less than 10% (point estimate of Δ cost < +10% of `g-min`'s mean).
+
+**Otherwise** keep it as a repo-only file (`claude/CLAUDE.md`), as now.
+
+Note: "any one of seven" gives a family-wise false-positive rate well above 5% if there is no real effect; a single marginal win should be read with that in mind, and the per-eval table shows whether it comes from one task.

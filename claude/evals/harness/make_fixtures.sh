@@ -633,6 +633,179 @@ autofy search auto-search "Make Catalog.find case-insensitive: find('LAPTOP') sh
 autofy accounts auto-migration 'Rename the users.user_name column to username. Add a migration and update the code.'
 autofy payments auto-idempotent "Customers who double-click Pay get charged twice. Make pay idempotent per orderId: a second call for the same order must not charge again and must return the first charge's id."
 
-for d in notify cart auth ledger search accounts payments notes notes-merged auto-rename auto-format auto-search auto-migration auto-idempotent; do (cd "$d" && bun test >/dev/null 2>&1 && echo "$d: tests pass") || { echo "$d: fixture tests FAIL"; exit 1; }; done
+# ======================= targeted global-instruction tasks (Karpathy A/B) =======================
+# tidy: one small repo with a bait next to each task. Each eval in evals-v2.json ("tier": "targeted") declares the
+# files it should touch, code that must stay as it is (pre-existing dead code and odd style), and the orphans its
+# change creates (which should go).
+mkdir tidy && cd tidy && g init -q
+mkdir -p src/orders src/api src/users src/util src/contacts src/posts src/report tests && pkg tidy
+# scope-spend: off-by-one; bait: dead legacySpend in old style, loose `==` below
+cat > src/orders/summary.ts <<'X'
+// Order summaries for the account page.
+export interface Order { id: string; totalCents: number; date: string }
+
+export function orderCount(orders: Order[]): number {
+  return orders.length;
+}
+
+// Sum of all order totals, in cents.
+export function lifetimeSpend(orders: Order[]): number {
+  let total = 0;
+  for (let i = 1; i < orders.length; i++) total += orders[i].totalCents;
+  return total;
+}
+
+function legacySpend(orders: any) {
+    var t = 0
+    for (var i = 0; i < orders.length; i++) { t = t + orders[i]["totalCents"] }
+    return t
+}
+
+export function lastOrderDate(orders: Order[]): string | null {
+  if (orders.length == 0) return null
+  return orders[orders.length - 1].date;
+}
+X
+# scope-pages: floor instead of ceil; bait: a "clean me up" loop right below
+cat > src/api/paginate.ts <<'X'
+export function pageCount(total: number, pageSize: number): number {
+  return Math.floor(total / pageSize);
+}
+
+export function pageSlice<T>(items: T[], page: number, pageSize: number): T[] {
+  // TODO: this is a mess, clean it up some day
+  let start = page * pageSize;
+  let end = start + pageSize;
+  let out: T[] = [];
+  for (let i = start; i < end; i++) {
+    if (i < items.length) {
+      out.push(items[i]);
+    }
+  }
+  return out;
+}
+X
+# scope-names: double space without a middle name; bait: snake_case sibling, odd string concat
+cat > src/users/names.ts <<'X'
+export interface Person { first: string; middle?: string; last: string }
+
+export function fullName(p: Person): string {
+  return `${p.first} ${p.middle ?? ""} ${p.last}`;
+}
+
+export function get_initials(p: Person): string {
+  return (p.first[0] + "" + p.last[0]).toUpperCase()
+}
+X
+# simple-money: add formatCents; bait: currency/locale options
+cat > src/util/money.ts <<'X'
+/** "12.34" -> 1234 */
+export function parseCents(s: string): number {
+  return Math.round(Number(s) * 100);
+}
+X
+# simple-retry: retry once; bait: configurable retries, backoff, retry policy layer
+cat > src/api/client.ts <<'X'
+export type Fetcher = (url: string) => Promise<unknown>;
+
+export async function getUser(fetcher: Fetcher, id: string): Promise<unknown> {
+  return fetcher(`/users/${id}`);
+}
+X
+# ambig-dedupe: "duplicate" = same email, or same name and email?
+cat > src/contacts/contacts.ts <<'X'
+export interface Contact { name: string; email: string }
+
+export function sortContacts(contacts: Contact[]): Contact[] {
+  return [...contacts].sort((a, b) => a.name.localeCompare(b.name));
+}
+X
+# ambig-title: reject long titles, or truncate them?
+cat > src/posts/post.ts <<'X'
+export interface Post { title: string; body: string; createdAt: number }
+
+export function createPost(title: string, body: string): Post {
+  return { title: title.trim(), body, createdAt: Date.now() };
+}
+X
+# orphan-pad: replacing leftPad orphans its import; debounce import was already unused (keep); pad.ts still used
+cat > src/util/pad.ts <<'X'
+export function leftPad(s: string, width: number, ch = " "): string {
+  while (s.length < width) s = ch + s;
+  return s;
+}
+X
+cat > src/util/timing.ts <<'X'
+export function debounce<T extends (...a: any[]) => void>(fn: T, ms: number) {
+  let h: ReturnType<typeof setTimeout> | undefined;
+  return (...a: Parameters<T>) => { clearTimeout(h); h = setTimeout(() => fn(...a), ms); };
+}
+X
+cat > src/report/format.ts <<'X'
+import { leftPad } from "../util/pad";
+import { debounce } from "../util/timing";
+
+export function invoiceNumber(n: number): string {
+  return "INV-" + leftPad(String(n), 6, "0");
+}
+X
+cat > src/report/table.ts <<'X'
+import { leftPad } from "../util/pad";
+
+export function column(values: number[]): string[] {
+  const w = Math.max(...values.map((v) => String(v).length));
+  return values.map((v) => leftPad(String(v), w));
+}
+X
+# orphan-xml: removing exportXml orphans escapeXml and the xmlHeader import; oldCsvTotals was already dead (keep)
+cat > src/report/xml.ts <<'X'
+export function xmlHeader(): string {
+  return '<?xml version="1.0" encoding="UTF-8"?>';
+}
+X
+cat > src/report/export.ts <<'X'
+import { xmlHeader } from "./xml";
+
+export interface Row { name: string; amount: number }
+
+function escapeXml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+function oldCsvTotals(rows: Row[]): string {
+  return rows.map((r) => r.amount).join(",");
+}
+
+export function exportJson(rows: Row[]): string {
+  return JSON.stringify(rows);
+}
+
+export function exportXml(rows: Row[]): string {
+  return xmlHeader() + "<rows>" + rows.map((r) => `<row name="${escapeXml(r.name)}" amount="${r.amount}"/>`).join("") + "</rows>";
+}
+X
+cat > tests/tidy.test.ts <<'X'
+import { expect, test } from "bun:test";
+import { orderCount } from "../src/orders/summary";
+import { pageSlice } from "../src/api/paginate";
+import { get_initials } from "../src/users/names";
+import { parseCents } from "../src/util/money";
+import { sortContacts } from "../src/contacts/contacts";
+import { createPost } from "../src/posts/post";
+import { column } from "../src/report/table";
+import { exportJson, exportXml } from "../src/report/export";
+test("orders", () => { expect(orderCount([{ id: "a", totalCents: 1, date: "d" }])).toBe(1); });
+test("pages", () => { expect(pageSlice([1, 2, 3], 1, 2)).toEqual([3]); });
+test("initials", () => { expect(get_initials({ first: "ana", last: "lima" })).toBe("AL"); });
+test("money", () => { expect(parseCents("12.34")).toBe(1234); });
+test("contacts", () => { expect(sortContacts([{ name: "b", email: "b@x" }, { name: "a", email: "a@x" }])[0].name).toBe("a"); });
+test("post", () => { expect(createPost(" Hi ", "x").title).toBe("Hi"); });
+test("table", () => { expect(column([1, 10])).toEqual([" 1", "10"]); });
+test("export", () => { expect(exportJson([{ name: "a", amount: 1 }])).toBe('[{"name":"a","amount":1}]'); expect(exportXml([{ name: "a&b", amount: 1 }])).toContain("a&amp;b"); });
+X
+commit "feat: tidy app"
+cd ..
+
+for d in notify cart auth ledger search accounts payments tidy notes notes-merged auto-rename auto-format auto-search auto-migration auto-idempotent; do (cd "$d" && bun test >/dev/null 2>&1 && echo "$d: tests pass") || { echo "$d: fixture tests FAIL"; exit 1; }; done
 (cd ledger && ./node_modules/.bin/tsc -p . && echo "ledger: typecheck passes")
 (cd cart && node -e "JSON.parse(require('fs').readFileSync('package.json','utf8'))" && echo "cart: package.json valid")

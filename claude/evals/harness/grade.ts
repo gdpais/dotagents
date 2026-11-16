@@ -13,6 +13,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } fro
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
+import { combineTargeted, parseTargeted, targetedPrompt } from "./targeted";
 
 const HERE = import.meta.dir;
 const MASK = /\b(delivery-lifecycle|delivery:[\w-]+|preflight(\.ts)?|classify_change(\.ts)?|quality_gate(\.ts)?|scan_secrets(\.ts)?|release_plan(\.ts)?|bench_stats(\.ts)?|audit_ci(\.ts)?|performance-review|ci-cd-pipeline|feature-planning|stop hook|Stop hook)\b/g;
@@ -57,6 +58,29 @@ async function grade(dir: string, ev: any, model: string, votes: number) {
   return { model, votes: ok.length, cost_usd: ok.reduce((s, r) => s + (r.cost_usd ?? 0), 0), verdicts, passed: verdicts.filter((v) => v.pass).length, total: verdicts.length };
 }
 
+const NO_TOOLS = ["--disallowedTools", "Bash", "Read", "Edit", "Write", "Glob", "Grep", "Agent", "Task", "WebFetch", "WebSearch", "Skill"];
+
+/** Targeted evals: blind count of unrequested additions and, on ambiguous tasks, asked / stated / silent. */
+async function gradeTargeted(dir: string, ev: any, model: string, votes: number) {
+  const score = JSON.parse(readFileSync(join(dir, "score.json"), "utf8"));
+  const prompt = targetedPrompt(ev, score.targeted?.diff ?? "", mask(score.targeted?.replies ?? ""));
+  const once = async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "grader-"));
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      const p = Bun.spawn(["claude", "-p", prompt, "--model", model, "--output-format", "json", ...NO_TOOLS], { cwd, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+      const [out] = await Promise.all([new Response(p.stdout).text(), p.exited]);
+      let res: any = {};
+      try { res = JSON.parse(out); } catch { /* retry */ }
+      const v = parseTargeted(String(res.result ?? ""));
+      if (v) return { ...v, cost_usd: res.total_cost_usd ?? 0 };
+    }
+    return null;
+  };
+  const ok = (await Promise.all(Array.from({ length: votes }, once))).filter(Boolean) as any[];
+  if (!ok.length) return { model, error: "grader did not return valid JSON", targeted: true };
+  return { model, targeted: true, cost_usd: ok.reduce((s, v) => s + v.cost_usd, 0), ...combineTargeted(ok) };
+}
+
 async function gradeOnce(dir: string, ev: any, model: string): Promise<any> {
   const score = JSON.parse(readFileSync(join(dir, "score.json"), "utf8"));
   const prompt = graderPrompt(ev.prompt, mask(score.final_text || "(no answer)"), ev.assertions);
@@ -79,7 +103,7 @@ export async function main(argv = process.argv.slice(2)) {
   const out = resolve(o.out);
   const spec = JSON.parse(readFileSync(join(HERE, "evals-v2.json"), "utf8"));
   const jobs: { dir: string; ev: any }[] = [];
-  for (const ev of spec.evals.filter((e: any) => e.assertions?.length)) {
+  for (const ev of spec.evals.filter((e: any) => e.assertions?.length || e.targeted)) {
     const evDir = join(out, "runs", ev.id);
     if (!existsSync(evDir)) continue;
     for (const arm of readdirSync(evDir)) for (const rep of readdirSync(join(evDir, arm))) {
@@ -91,9 +115,10 @@ export async function main(argv = process.argv.slice(2)) {
   const worker = async () => {
     while (next < jobs.length) {
       const j = jobs[next++];
-      const g = await grade(j.dir, j.ev, o.model ?? "sonnet", Number(o.votes ?? 3));
+      const g: any = j.ev.targeted ? await gradeTargeted(j.dir, j.ev, o.model ?? "sonnet", Number(o.votes ?? 3)) : await grade(j.dir, j.ev, o.model ?? "sonnet", Number(o.votes ?? 3));
       writeFileSync(join(j.dir, "grade.json"), JSON.stringify(g, null, 2));
-      console.log(`[${++done}/${jobs.length}] ${j.dir.split("/runs/")[1]}: ${g.passed}/${g.total}${(g as any).error ? " " + (g as any).error : ""}`);
+      const shown = g.targeted ? `${g.unrequested} unrequested, ${g.ambiguity}` : `${g.passed}/${g.total}`;
+      console.log(`[${++done}/${jobs.length}] ${j.dir.split("/runs/")[1]}: ${shown}${g.error ? " " + g.error : ""}`);
     }
   };
   await Promise.all(Array.from({ length: Math.min(Number(o.concurrency ?? 6), jobs.length) }, worker));

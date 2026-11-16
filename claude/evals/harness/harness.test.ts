@@ -170,7 +170,7 @@ test("global arms: the mirror HOME holds only the arm's CLAUDE.md and links ever
   const { tmpdir } = await import("node:os");
   const root = mkdtempSync(join(tmpdir(), "gmd-"));
   mkdirSync(join(root, "claude", "global"), { recursive: true });
-  writeFileSync(join(root, "claude", "global", "AGENTS.md"), "# min\n\n");
+  writeFileSync(join(root, "claude", "global", "CLAUDE.md"), "# min\n\n");
   writeFileSync(join(root, "claude", "CLAUDE.md"), "# karp\n");
   expect(globalMd("g-none", root)).toBeNull();
   expect(globalMd("g-min", root)).toBe("# min\n");
@@ -197,4 +197,22 @@ test("global arms: the mirror HOME holds only the arm's CLAUDE.md and links ever
   expect(mirrorHome(real, n, "ignored")).toBe(n); // idempotent: an existing mirror is kept
   expect(existsSync(join(n, ".claude", "CLAUDE.md"))).toBe(false);
   expect(readFileSync(join(real, ".claude", "CLAUDE.md"), "utf8")).toBe("user's real file");
+});
+
+test("targeted: exported names, parameter counts and grader votes", async () => {
+  const { exportedNames, paramCount, parseTargeted, combineTargeted, isTestFile } = await import("./targeted");
+  expect(exportedNames("export function a() {}\nexport const b = 1;\nexport interface C {}\nexport { d, e as f };\nfunction g() {}").sort()).toEqual(["C", "a", "b", "d", "f"]);
+  expect(paramCount("export function formatCents(cents: number): string {", "formatCents")).toBe(1);
+  expect(paramCount("export function formatCents(cents: number, cur: Cur = \"EUR\", o: { a: number; b: string } = { a: 1, b: \"x\" }) {", "formatCents")).toBe(3);
+  expect(paramCount("export const getUser = async (f: (u: string) => Promise<unknown>, id: string,) => f(id);", "getUser")).toBe(2);
+  expect(paramCount("export function noop() {}", "noop")).toBe(0);
+  expect(paramCount("nothing here", "x")).toBeNull();
+  expect(isTestFile("tests/a.ts") && isTestFile("src/a.test.ts") && !isTestFile("src/a.ts")).toBe(true);
+  expect(parseTargeted('x {"unrequested": ["a"], "ambiguity": "stated"} y')!.unrequested).toEqual(["a"]);
+  expect(parseTargeted('{"unrequested": "a", "ambiguity": "stated"}')).toBeNull();
+  const v = (n: number, a: string) => ({ unrequested: Array(n).fill("x"), ambiguity: a, evidence: "" });
+  const c = combineTargeted([v(3, "asked"), v(0, "silent"), v(1, "asked")]);
+  expect(c.unrequested).toBe(1);
+  expect(c.ambiguity).toBe("asked");
+  expect(combineTargeted([v(0, "asked"), v(0, "stated"), v(0, "silent")]).ambiguity).toBe("silent");
 });
