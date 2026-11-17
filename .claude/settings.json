@@ -1,5 +1,17 @@
 {
   "model": "opus",
+  "skillOverrides": {
+    "anthropic-skills:chrome-browser": "off",
+    "anthropic-skills:deep-research": "off",
+    "anthropic-skills:docx": "off",
+    "anthropic-skills:google-workspace": "off",
+    "anthropic-skills:import-memory": "off",
+    "anthropic-skills:morning": "off",
+    "anthropic-skills:pdf": "off",
+    "anthropic-skills:pptx": "off",
+    "anthropic-skills:skill-creator": "off",
+    "anthropic-skills:xlsx": "off"
+  },
   "enableWorkflows": true,
   "enabledPlugins": {
     "session-report@claude-plugins-official": true,
@@ -7,7 +19,8 @@
     "delivery@dotagents": true,
     "replay-theater@dotagents": true,
     "blast-radius@dotagents": true,
-    "token-weather@dotagents": true
+    "sre@dotagents": true,
+    "coo@dotagents": false
   },
   "extraKnownMarketplaces": {
     "dotagents": {
