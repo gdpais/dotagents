@@ -14,7 +14,7 @@
  *            on autonomy evals the repo also gets the spec's `.claude/delivery.json` policy
  *   ondemand nothing installed; uses the eval's `ondemand_prompt`, which names the skill file or script
  *   claudemd nothing installed; the spec's working agreement in .claude/CLAUDE.md (autonomy evals' control)
- *   g-none, g-min, g-karp  global-instructions arms: the user's normal setup (settings, plugins, hooks, auth) under a
+ *   g-none, g-min  global-instructions arms: the user's normal setup (settings, plugins, hooks, auth) under a
  *            mirror HOME whose ~/.claude/CLAUDE.md is only the arm's file(s) (GLOBAL_ARMS); g-none has none. The real
  *            ~/.claude is never written: the mirror symlinks every entry except CLAUDE.md and per-session state.
  *   <arm>+app the same arm with the spec's `autonomy.app_prompt` appended to the system prompt: the
@@ -51,8 +51,7 @@ export const DENIED = ["Bash(git push *)", "Bash(gh *)", "Bash(curl *)", "Bash(w
 /** Global-instructions arms: the files (repo-relative) concatenated into the mirror HOME's ~/.claude/CLAUDE.md. */
 export const GLOBAL_ARMS: Record<string, string[]> = {
   "g-none": [],
-  "g-min": ["claude/global/CLAUDE.md"],
-  "g-karp": ["claude/global/CLAUDE.md", "claude/CLAUDE.md"],
+  "g-min": ["claude/CLAUDE.md"],
 };
 const REPO_ROOT = resolve(HERE, "..", "..", "..");
 /** Per-session state kept out of the mirror, so runs neither read the user's history and memory nor write into it. */
