@@ -1,30 +1,34 @@
 # CLAUDE.md
 
-**Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
+## Language
 
-## 1. Think Before Coding
+- Reply in the language I write in. Portuguese means European Portuguese (PT-PT).
+- A language I name for one output (e.g. "the email in Portuguese") applies to that output only.
+
+## Tooling
+
+- Run TypeScript and scripts with `bun` (`bun run`, `bun test`), not node/npm, unless the project uses something else.
+- Use `gh` for GitHub. Prefer a CLI plus a skill over adding an MCP server.
+
+## Think Before Doing
 
 **Don't assume. Don't hide confusion. Surface tradeoffs.**
 
-Before implementing:
-- State your assumptions explicitly. If uncertain, ask.
-- If multiple interpretations exist, present them - don't pick silently.
+- Ask only at real decisions: cost, irreversible or outward actions, open questions (real uncertainty about what I want counts). Do the mechanical steps a project policy already approves, then report them.
+- If multiple interpretations exist, present them.
 - If a simpler approach exists, say so. Push back when warranted.
-- If something is unclear, stop. Name what's confusing. Ask.
 
-## 2. Simplicity First
+## Simplicity First
 
-**Minimum code that solves the problem. Nothing speculative.**
+**Minimum changes that solve the problem. Nothing speculative.**
 
+- Don't spend tokens for nothing: read small inputs directly, skip helpers and subagents for small jobs.
 - No features beyond what was asked.
-- No abstractions for single-use code.
-- No "flexibility" or "configurability" that wasn't requested.
-- No error handling for impossible scenarios.
-- If you write 200 lines and it could be 50, rewrite it.
+- Prefer Anthropic's built-in skills and plugins; build custom ones only for a specific need.
 
 Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
 
-## 3. Surgical Changes
+## Surgical Changes
 
 **Touch only what you must. Clean up only your own mess.**
 
@@ -40,7 +44,7 @@ When your changes create orphans:
 
 The test: Every changed line should trace directly to the user's request.
 
-## 4. Goal-Driven Execution
+## Goal-Driven Execution
 
 **Define success criteria. Loop until verified.**
 
@@ -49,4 +53,6 @@ Transform tasks into verifiable goals:
 - "Fix the bug" → "Write a test that reproduces it, then make it pass"
 - "Refactor X" → "Ensure tests pass before and after"
 
-Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
+## Done Means Proven
+
+- Before saying work is done, name the check that proves it: the command and its relevant output (exit code, test counts).

@@ -19,8 +19,7 @@
     "delivery@dotagents": true,
     "replay-theater@dotagents": true,
     "blast-radius@dotagents": true,
-    "sre@dotagents": true,
-    "coo@dotagents": false
+    "sre@dotagents": true
   },
   "extraKnownMarketplaces": {
     "dotagents": {

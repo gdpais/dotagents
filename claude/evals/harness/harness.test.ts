@@ -169,13 +169,11 @@ test("global arms: the mirror HOME holds only the arm's CLAUDE.md and links ever
   const { join } = await import("node:path");
   const { tmpdir } = await import("node:os");
   const root = mkdtempSync(join(tmpdir(), "gmd-"));
-  mkdirSync(join(root, "claude", "global"), { recursive: true });
-  writeFileSync(join(root, "claude", "global", "CLAUDE.md"), "# min\n\n");
-  writeFileSync(join(root, "claude", "CLAUDE.md"), "# karp\n");
+  mkdirSync(join(root, "claude"), { recursive: true });
+  writeFileSync(join(root, "claude", "CLAUDE.md"), "# min\n\n");
   expect(globalMd("g-none", root)).toBeNull();
   expect(globalMd("g-min", root)).toBe("# min\n");
-  expect(globalMd("g-karp", root)).toBe("# min\n\n# karp\n");
-  expect(Object.keys(GLOBAL_ARMS)).toEqual(["g-none", "g-min", "g-karp"]);
+  expect(Object.keys(GLOBAL_ARMS)).toEqual(["g-none", "g-min"]);
 
   const real = join(root, "home");
   mkdirSync(join(real, ".claude", "plugins"), { recursive: true });
