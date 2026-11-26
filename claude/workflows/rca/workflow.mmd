@@ -4,7 +4,7 @@ flowchart TD
     ORCH -- no --> FRAME
     FRAME[1 Frame problem - rca-investigation] --> ACTIVE{Impact active and critical?}
     ACTIVE -- yes --> MITIG[Focus on mitigation - evidence stays provisional]
-    MITIG --> LIVE[[incident-live-report - Investigation section]]
+    MITIG --> LIVE[[incident-live-report - Current Status section]]
     MITIG --> INTAKEQ
     ACTIVE -- no --> INTAKEQ{Evidence needs conversion or coverage checks?}
     INTAKEQ -- yes --> INV[Run evidence_inventory once - coordinator]

@@ -23,19 +23,19 @@ Authoritative sources include the user, the organization's incident tooling, and
 ## Build or update the report
 
 1. Use the current issue, alert, ticket, logs, metrics, changes, commands, and responder notes as the factual base. Do not replace specific evidence with generic language.
-2. Read [references/live-report-template.md](references/live-report-template.md). Fill the four sections: Now, Investigation, Actions, Timeline. Keep it short: a responder should read it in under a minute. If the template file is unavailable, use the outline below.
+2. Read [references/live-report-template.md](references/live-report-template.md). Fill the header and the four sections: Current Status, Actions Taken, Next Steps, Timeline. Keep it short: a responder should read it in under a minute. If the template file is unavailable, use the outline below.
 3. Do not delay the report because information is missing. Write `unknown` or `not measured`, then record the next check that can resolve the gap.
-4. Use one stated timezone. On every update, change `last updated`, summarize what changed, retain important factual timeline entries, and move completed work to `Done` with its observed result.
+4. Use one stated timezone. On every update, change `Last Updated`, add what changed to Current Status and the Timeline, retain important factual timeline entries, and move completed work from Next Steps to Actions Taken with its observed result.
 5. Add the optional Coordination block only when multiple teams, formal roles, a handoff, or scheduled stakeholder communication make it useful.
 
 ### Outline (mirrors the template)
 
-- Header: `# [INCIDENT-ID] [Symptom]`; Status; Updated (with timezone); Next update (time or trigger); Lead / channel / ticket.
-- Now: Impact (number + source/window), Trend, Changed since last update, Next move (owner).
-- Investigation: Known; Suspected; Ruled out; Unknown (with the next check).
-- Actions: Done (time - action - measured result); In progress / next (owner, expected result or rollback condition).
-- Timeline table: Time | Event, decision or change | Source.
-- Optional Coordination: roles, exit criteria, handoff.
+- Header: `## Incident Update: [INCIDENT-ID] [Title]`; Severity (only if supplied); Status; Impact (number + source/window); Last Updated (with timezone); Next update (time or trigger).
+- Current Status: what we know now (with source/time); Suspected; Ruled out; Unknown (with the next check).
+- Actions Taken: time - action - measured result.
+- Next Steps: action - owner - expected result or rollback condition.
+- Timeline table: Time | Event (with source).
+- Optional Coordination: lead / channel / ticket, roles, exit criteria, handoff.
 
 Do not invent the incident ID, owner, channel, or ticket. Use a visible placeholder such as `[INCIDENT-ID]` or `unknown` until supplied.
 
@@ -55,14 +55,14 @@ Put the one or two decision-useful numbers in the Impact line (scope with denomi
 
 ## Using causal findings from rca-investigation
 
-When the `rca-investigation` skill (or its output) supplies findings, map them into section 3 without upgrading confidence:
+When the `rca-investigation` skill (or its output) supplies findings, map them into Current Status without upgrading confidence:
 
-- `observed` → **We know** (with time/source).
-- `reported` → **We know**, tagged `reported, unverified`, or **Still unknown** if it is contested.
-- `inferred`, `unconfirmed`, or `strongly supported` hypotheses → **We suspect**, keeping the confidence label and the next discriminating test.
+- `observed` → a plain Current Status line (with time/source).
+- `reported` → a plain line tagged `reported, unverified`, or **Unknown** if it is contested.
+- `inferred`, `unconfirmed`, or `strongly supported` hypotheses → **Suspected**, keeping the confidence label and the next discriminating test.
 - eliminated candidates → **Ruled out**, with the test and result.
-- `unknown` and evidence gaps → **Still unknown**, with the next check.
-- A mechanism rated `confirmed` may appear under **We know** as "causal mechanism confirmed by RCA (evidence: ...)", but do not write a "root cause" section or lessons here; the final root-cause statement belongs to the postmortem.
+- `unknown` and evidence gaps → **Unknown**, with the next check.
+- A mechanism rated `confirmed` may appear as a plain line: "causal mechanism confirmed by RCA (evidence: ...)", but do not write a "root cause" section or lessons here; the final root-cause statement belongs to the postmortem.
 
 ## Where the report lives
 

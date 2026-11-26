@@ -25,7 +25,7 @@ Use during an active incident or after recovery. Adapt the depth to the investig
 ## Boundaries and hand-offs
 
 - When impact is active, containment and recovery take priority over completing the RCA.
-- Use the `incident-live-report` skill for the shared operational record. This skill owns the causal investigation that feeds that report's `Investigation` section: hand over the latest evidence snapshot (confirmed facts, leading hypotheses with confidence, ruled-out causes, latest test result, next test).
+- Use the `incident-live-report` skill for the shared operational record. This skill owns the causal investigation that feeds that report's `Current Status` section: hand over the latest evidence snapshot (confirmed facts, leading hypotheses with confidence, ruled-out causes, latest test result, next test).
 - Use the `incident-postmortem` skill when the incident is stable and the user wants the final learning artifact, impact analysis, lessons, and corrective actions. Hand over the final causal assessment, evidence ledger and remaining gaps. Keep `root cause not confirmed` if the causality gate was not met.
 - Use the `tech-email` skill when findings need to go to executives, managers or technical teams as an email. Provide the snapshot and do not send anything yourself.
 - When the `sre-incident-lifecycle` orchestrator is driving the incident, it invokes this skill for the causal stage and receives the snapshot and assessment back. Follow its sequencing, but keep this skill's evidence, authorization and causality rules.
@@ -276,7 +276,7 @@ When the incident is active:
 - prioritize checks that also support containment and recovery decisions;
 - preserve evidence before interventions when feasible;
 - record before-and-after observations for every mitigation;
-- provide a short working update containing current confirmed facts, leading hypotheses, the latest test result, the next discriminating test, and any relevant risk or approval requirement. This update is the input for `incident-live-report`'s Investigation section.
+- provide a short working update containing current confirmed facts, leading hypotheses, the latest test result, the next discriminating test, and any relevant risk or approval requirement. This update is the input for `incident-live-report`'s Current Status section.
 
 **Do not delay recovery solely to complete the investigation. If the incident is active and considered critical, focus on mitigation.** Do not present recovery as proof that the causal analysis is complete.
 

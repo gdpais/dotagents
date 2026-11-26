@@ -60,11 +60,11 @@ Ask once, at the first write, where durable outputs should live: inline in the c
 
 Run an update with `incident-live-report` whenever there is new evidence, an action result, a scope or trend change, a decision, a role or shift handoff, or the stated next-update time arrives. Each loop:
 
-- update `Updated`, the Now section (impact, trend, what changed, next move), known/suspected/ruled-out/unknown, and actions (moving completed work to `Done` with its measured result);
+- update `Last Updated`, the Impact line, Current Status (known/suspected/ruled-out/unknown), and Next Steps (moving completed work to Actions Taken with its measured result);
 - append material timeline entries, including any new KPI timestamps;
 - decide whether to trigger Phase 3 (causal question is open and evidence exists), Phase 4 (an update is due or requested), or Phase 5 (recovery observed).
 
-For a shift handoff, fill the live report's Handoff line (current state, what not to repeat, what to watch, next owner and acknowledgement).
+For a shift handoff, fill the Handoff line in the live report's Coordination block (current state, what not to repeat, what to watch, next owner and acknowledgement).
 
 If a mitigation or fix involves a production deployment, `engineering:deploy-checklist` can prepare pre-deploy checks and rollback triggers. Thresholds come from baselines or the user, never invented; executing the deploy needs explicit authorization.
 
@@ -74,7 +74,7 @@ Use the `rca-investigation` skill for causal work: evidence ledger, ranked hypot
 
 - **Pass:** the causal question, symptom and scope, incident window and timezone, the current live report, evidence sources and locations, recent changes, current mitigation state, and the authorization scope (read-only by default; production-changing tests need stated risk, explicit approval, rollback readiness, and post-change verification).
 - **Receive:** RCA status and confidence, observed/reported/inferred/unknown facts, ranked hypotheses with supporting and contradicting evidence, tests run versus only proposed, ruled-out candidates, remaining gaps and next tests.
-- **Map back** into the live report's Investigation section using the mapping in `incident-live-report`. The live report never states a final root cause; that belongs to the postmortem.
+- **Map back** into the live report's Current Status section using the mapping in `incident-live-report`. The live report never states a final root cause; that belongs to the postmortem.
 - Ticket tracking for the investigation (draft, create, update) is owned by `rca-investigation`'s optional issue tracking; do not run a second tracker for the same ticket.
 
 While impact is active, RCA can run in a subagent in parallel (see "Subagents") so the coordinator stays on mitigation and the live report.
