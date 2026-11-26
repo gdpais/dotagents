@@ -4,7 +4,7 @@ Read when recommending roles for a larger incident or choosing a communications 
 
 ## 1. Roles
 
-Role names follow the live report's optional major-incident section:
+Role names follow the live report's optional Coordination block:
 
 - **Incident Commander:** coordinates, decides, owns the resolution gate confirmation.
 - **Operations:** runs diagnostics and mitigations.

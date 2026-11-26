@@ -7,7 +7,7 @@ Adapted from the four-point status-update checklist in `engineering:incident-res
 ```text
 [INCIDENT-ID] [Status] - [Concise symptom or affected capability]
 Impact: [who/what is affected, with scope and source; or unknown]
-Current state: [improving | stable | worsening | unknown] - [one line of evidence]
+Current state: [one line from the report's Current Status; improving, stable or worsening only when the evidence shows it]
 Since last update: [new evidence, action result, or scope change]
 Working on: [next move and owner; label hypotheses as "suspected"]
 Next update: [time with timezone, or trigger]
